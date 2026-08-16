@@ -23,12 +23,12 @@ counties.
   **Off by default.** *Note: this layer's bundled data is still **Dorset-only** —
   it has not yet been rebuilt for the wider coastline.*
 - **Water body status** — a blue-green→dun scale — the Environment Agency's WFD
-  ecological classification of the 60 coastal and estuarine water bodies on this
+  ecological classification of the 59 coastal and estuarine water bodies on this
   coast (Cycle 4, 2025). Chemical status is on the card but not mapped, because
   every one of them fails it. **Off by default.**
 - **Storm overflows** (a subgroup, two layers):
   - **Annual spill data** — a pale rose→deep wine ramp — how many times each of
-    1,959 storm overflows discharged in 2025 and for how long, from the
+    1,903 storm overflows discharged in 2025 and for how long, from the
     Environment Agency's Event Duration Monitoring annual return. **Off by
     default.**
   - **Live discharge status** — is this overflow discharging *right now*, from the
@@ -567,6 +567,52 @@ Known limits: two long-sea outfalls (Littlehampton WWPS, Bexhill & Hastings WWTW
 fall outside *every* WFD coastal water body — beyond the one-nautical-mile limit —
 so no catchment-based boundary can reach them.
 
+### The Beachy Head cutoff — where geography overrules hydrology
+
+The catchment boundary above answers "does this water end up on this coast". It
+is not the only rule. The project corridor **ends at Beachy Head**, and a second,
+independent test enforces that: a site must be **west of 0.245°E**. Both tests
+must pass.
+
+The two genuinely disagree, and that is the point. Hastings and Bexhill drain
+into the Sussex East water body, so the catchment boundary correctly carried them
+in — but they sit past the end of the corridor. **Geography wins**; 58 overflows
+in the Eastbourne–Pevensey–Bexhill–Hastings stretch are cut.
+
+`BEACHY_HEAD_LON = 0.245` (`scripts/lib/southcoast.mjs`, mirrored in
+`src/map/catchmentBoundary.js` for the runtime layer) is the headland itself.
+Three independent datasets agree on that line: Beachy Head West MCZ ends at
+0.242, Beachy Head East MCZ begins at 0.241, and the Sussex East water body
+begins at 0.250.
+
+It is **not** the `SOUTH_COAST_BBOX` east edge of 0.6 — that figure is a query
+envelope sized to contain Beachy Head East MCZ (0.241 → 0.572) whole, not a
+statement about where the corridor ends. One consequence is deliberately left
+standing: **the marine designations layer still draws Beachy Head East MCZ east
+of this line.** The storm overflow and water body layers stop at the headland;
+the marine layer does not. Aligning it means dropping that MCZ from the
+allow-list in `fetch-marine.mjs` — a separate decision.
+
+Sussex East is excluded from the water body layer for the same reason. The fit is
+exact rather than marginal: it spans **0.250 → 0.600°E**, so *all* of it is east
+of the cutoff — it effectively begins where the corridor ends. Nothing is clipped;
+the whole water body is dropped, which at least keeps the map self-consistent —
+no outfalls shown without the water they discharge into.
+
+**Force-included sites.** A short allow-list beats both filters, in the same
+spirit as the marine layer's curated per-site lists:
+
+| ID | Site | Why |
+|---|---|---|
+| `SWS00513` | Littlehampton WWPS | Long-sea outfall ~4 km offshore, beyond every WFD water body |
+| `SWS00061` | Bexhill & Hastings WWTW | Long-sea outfall, beyond every WFD water body — *and* east of the cutoff |
+
+Both discharge from pipes running past the one-nautical-mile limit of the coastal
+water bodies, so they fall outside every water body and outside the catchment
+boundary derived from them. No catchment test can reach them; they are this
+coast's infrastructure and belong on the map. `SWS00061` is the **only** feature
+east of the cutoff in either storm overflow layer.
+
 ### Storm overflows — two layers, deliberately separate
 
 Both sit under a **Storm overflows** subheading inside *At sea*, because they
@@ -578,8 +624,8 @@ live status feed. Both are **off by default** and lazy-loaded.
 Duration Monitoring annual return** from its open ArcGIS FeatureServer. The
 service holds every return from 2021 on; the script takes the **most recent year
 present** rather than hard-coding one, and reports which it used. For 2025 that
-is **1,959 overflows** inside the catchment boundary, which together recorded
-**~49,000 spills**.
+is **1,903 overflows** inside the catchment boundary and west of the Beachy Head
+cutoff, which together recorded **~49,600 spills**.
 
 - **Style** — one dot per overflow, coloured *and* sized by spill count on a pale
   ash-rose → deep wine ramp (`--spill-0..4`). Banded, not continuous: the counts
@@ -597,7 +643,7 @@ useless. The National Storm Overflow Hub (Stream) is a map over one **public,
 anonymous ArcGIS feature service per water company** rather than a single
 national endpoint, so the module queries the four that operate on this coastline
 — South West Water, Southern Water, Wessex Water, Thames Water — pages each one,
-and merges, then applies the same catchment test (~1,980 overflows). **No API key
+and merges, then applies the same two filters (~1,926 overflows). **No API key
 and no registration**; the services send `access-control-allow-origin: *`, so the
 browser reads them directly.
 
@@ -622,9 +668,10 @@ browser reads them directly.
 `npm run data:wfd` (`scripts/fetch-wfd-coastal.mjs`) reads the **Water Framework
 Directive Transitional and Coastal Water Bodies, Cycle 4 Classification 2025** —
 the Environment Agency's own assessment of the water, which is why it sits as a
-peer of the other *At sea* layers rather than under *Storm overflows*. **60 water
-bodies** (39 estuarine, 21 coastal) — the nine north-and-west-draining ones are
-excluded by the same list the catchment boundary uses.
+peer of the other *At sea* layers rather than under *Storm overflows*. **59 water
+bodies** (39 estuarine, 20 coastal) — the nine north-and-west-draining ones are
+excluded by the same list the catchment boundary uses, and Sussex East by the
+Beachy Head cutoff.
 
 - **Style** — filled polygons coloured by **ecological** status on a sea-green →
   dun scale (`--wfd-high..bad`), health reading as colour. A broad wash beneath

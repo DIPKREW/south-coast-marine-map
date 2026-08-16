@@ -22,7 +22,7 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { bboxParams, fetchAllFeatures, fetchCount, roundCoords, loadBoundary } from './lib/southcoast.mjs';
+import { bboxParams, fetchAllFeatures, fetchCount, roundCoords, loadBoundary, BEACHY_HEAD_LON, FORCE_INCLUDE } from './lib/southcoast.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dir, '../public/data/storm-overflows.geojson');
@@ -126,16 +126,31 @@ async function main() {
   let noGeom = 0;
   let noCount = 0;
   let outside = 0;
+  let eastOfCutoff = 0;
+  const forced = [];
   const features = [];
   for (const f of raw) {
     if (!f.geometry?.coordinates?.length) {
       noGeom++;
       continue;
     }
-    // The hydrological test — this is what replaced the rectangle.
-    if (!boundary.contains(f.geometry.coordinates)) {
-      outside++;
-      continue;
+    const id = f.properties?.unique_id;
+    const override = FORCE_INCLUDE.get(id);
+    if (override) {
+      forced.push(`${id} — ${override}`);
+    } else {
+      // TWO independent tests, both of which a site must pass.
+      // 1. Hydrological: does this water end up on this coast?
+      if (!boundary.contains(f.geometry.coordinates)) {
+        outside++;
+        continue;
+      }
+      // 2. Geographic: is it west of Beachy Head? This one deliberately cuts
+      //    catchments that drain here but sit past the end of the corridor.
+      if (f.geometry.coordinates[0] > BEACHY_HEAD_LON) {
+        eastOfCutoff++;
+        continue;
+      }
     }
     const p = f.properties ?? {};
     const spills = num(p.counted_spills_12_24hr_calculated);
@@ -190,6 +205,9 @@ async function main() {
   console.log(`\n  by water company:`);
   for (const [co, n] of [...byCompany].sort((a, b) => b[1] - a[1])) console.log(`     ${co}: ${n}`);
   console.log(`\n  ${outside} of ${raw.length} overflow(s) in the envelope fell OUTSIDE the catchment boundary — dropped`);
+  console.log(`  ${eastOfCutoff} more were inside it but EAST of the Beachy Head cutoff (${BEACHY_HEAD_LON}°E) — dropped`);
+  console.log(`  ${forced.length} force-included by explicit override:`);
+  for (const f of forced) console.log(`     + ${f}`);
   if (noGeom) console.log(`  ! ${noGeom} record(s) had no geometry — dropped`);
   if (noCount) console.log(`  ! ${noCount} record(s) had no spill count — dropped`);
 

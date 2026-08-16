@@ -26,6 +26,9 @@
  * the same file, and the same ray-casting test, that the build-time layers use.
  * That is what keeps an overflow near Salisbury (inland, drains south) in and one
  * at Bideford (coastal, drains to the Bristol Channel) out.
+ *
+ * A second, independent GEOGRAPHIC test then applies the Beachy Head cutoff, and
+ * a short force-include list beats both — see catchmentBoundary.js.
  */
 import { loadCatchmentBoundary } from './catchmentBoundary.js';
 
@@ -142,10 +145,10 @@ export async function loadLiveOverflows({ base = '/', signal } = {}) {
   for (const { company, features: raw } of ok) {
     for (const f of raw) {
       if (!f.geometry?.coordinates?.length) continue;
-      // The hydrological test — this is what replaced the rectangle.
-      if (!boundary.contains(f.geometry.coordinates)) { outside++; continue; }
       const p = f.properties ?? {};
       const id = prop(p, 'id') ?? null;
+      // Hydrological test AND the Beachy Head cutoff, unless force-included.
+      if (!boundary.includes(f.geometry.coordinates, id)) { outside++; continue; }
       const rawStatus = Number(prop(p, 'status'));
       // Anything unrecognised is treated as "no signal", never as "clean".
       const status = rawStatus === 1 ? 1 : rawStatus === 0 ? 0 : -1;

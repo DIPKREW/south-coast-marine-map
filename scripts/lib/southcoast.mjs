@@ -18,6 +18,43 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 // extended seaward (south): [W, S, E, N].
 export const SOUTH_COAST_BBOX = [-6.2, 49.85, 0.6, 51.1];
 
+/**
+ * THE BEACHY HEAD CUTOFF — a hard eastern edge, west of which a site must sit.
+ *
+ * The project corridor ends at Beachy Head, and this is the headland itself.
+ * Three independent datasets put it on the same line: Beachy Head West MCZ ends
+ * at 0.242, Beachy Head East MCZ begins at 0.241, and the Sussex East coastal
+ * water body begins at 0.250.
+ *
+ * This is a GEOGRAPHIC rule and it deliberately overrides the hydrological one.
+ * The catchment boundary correctly carries the Hastings and Bexhill catchments
+ * into the project, because they really do drain into Sussex East — but the
+ * corridor stops at the headland, so they are cut. Where the two disagree,
+ * geography wins. A site must pass BOTH tests.
+ *
+ * Note this is NOT the marine layer's `SOUTH_COAST_BBOX` east edge of 0.6. That
+ * figure is a query envelope sized to contain Beachy Head East MCZ (which runs
+ * 0.241 → 0.572) whole, not a statement about where the corridor ends. One
+ * consequence, deliberately left alone for now: the marine designations layer
+ * still draws Beachy Head East MCZ east of this line.
+ */
+export const BEACHY_HEAD_LON = 0.245;
+
+/**
+ * FORCE-INCLUDED SITES — an explicit allow-list that beats every filter above,
+ * in the same spirit as the marine layer's curated per-site allow-lists.
+ *
+ * Both are LONG-SEA OUTFALLS: they discharge from a pipe running out beyond the
+ * one-nautical-mile limit of the WFD coastal water bodies, so they sit outside
+ * every water body and outside the catchment boundary derived from them. No
+ * catchment test can reach them, but they are unambiguously this coast's
+ * infrastructure and belong on the map.
+ */
+export const FORCE_INCLUDE = new Map([
+  ['SWS00513', 'Littlehampton WWPS — long-sea outfall ~4 km offshore, beyond every WFD water body'],
+  ['SWS00061', 'Bexhill & Hastings WWTW — long-sea outfall, beyond every WFD water body (also east of the Beachy Head cutoff)'],
+]);
+
 /** ArcGIS FeatureServer query params for an envelope intersect over the box. */
 export function bboxParams(extra = {}) {
   return {

@@ -11,6 +11,26 @@
  * when its toggle is switched on.
  */
 
+/**
+ * THE BEACHY HEAD CUTOFF — the corridor's hard eastern edge. Kept in step with
+ * `BEACHY_HEAD_LON` in scripts/lib/southcoast.mjs, which applies the same value
+ * to the build-time layers.
+ *
+ * A GEOGRAPHIC rule that deliberately overrides the hydrological one: the
+ * Hastings and Bexhill catchments really do drain into Sussex East, but the
+ * corridor stops at the headland, so they are cut. A site must pass BOTH tests.
+ */
+export const BEACHY_HEAD_LON = 0.245;
+
+/**
+ * Sites that beat every filter, mirroring the marine layer's curated allow-lists
+ * and the same list in scripts/lib/southcoast.mjs. Both are LONG-SEA OUTFALLS,
+ * discharging beyond the one-nautical-mile limit of the WFD coastal water
+ * bodies — so they sit outside every water body and outside the catchment
+ * boundary derived from them, and no catchment test can reach them.
+ */
+export const FORCE_INCLUDE = new Set(['SWS00513', 'SWS00061']);
+
 let cached = null;
 
 /** Every ring of a Polygon / MultiPolygon, as { rings, bbox } per polygon. */
@@ -79,6 +99,16 @@ export async function loadCatchmentBoundary(base = '/', signal) {
         if (!hole) return true;
       }
       return false;
+    },
+    /**
+     * The whole membership rule in one place: an overflow belongs if it is on
+     * the force-include list, or if it passes BOTH the hydrological test and the
+     * Beachy Head cutoff.
+     */
+    includes(point, id) {
+      if (FORCE_INCLUDE.has(id)) return true;
+      if (point[0] > BEACHY_HEAD_LON) return false;
+      return this.contains(point);
     },
   };
   return cached;

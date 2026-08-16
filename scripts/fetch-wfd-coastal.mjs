@@ -29,7 +29,7 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import mapshaper from 'mapshaper';
-import { SOUTH_COAST_BBOX, bboxParams, fetchAllFeatures, fetchCount } from './lib/southcoast.mjs';
+import { SOUTH_COAST_BBOX, bboxParams, fetchAllFeatures, fetchCount, BEACHY_HEAD_LON } from './lib/southcoast.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dir, '../public/data/wfd-coastal.geojson');
@@ -50,6 +50,24 @@ const FIELDS = [
   'opcat_id',
   'operational_catchment',
 ].join(',');
+
+/**
+ * Water bodies EAST of the Beachy Head cutoff — outside the project corridor,
+ * even though they drain to the English Channel like everything else here.
+ *
+ * Only one qualifies, and the fit is exact rather than marginal: Sussex East
+ * spans 0.250°E → 0.600°E, so ALL of it lies east of the headland at 0.245 —
+ * it effectively begins where the corridor ends. There is no straddling polygon
+ * to agonise over and nothing is clipped; the whole water body is dropped, which
+ * keeps the hard edge consistent with the storm overflow layers.
+ *
+ * The cost, stated plainly: the Hastings and Bexhill catchments really do drain
+ * into Sussex East, so removing it and them together is at least self-consistent
+ * — the map no longer shows outfalls without the water they discharge into.
+ */
+const EAST_OF_CUTOFF = new Map([
+  ['GB640704540002', 'Sussex East — spans 0.250→0.600°E, entirely east of the Beachy Head cutoff'],
+]);
 
 /**
  * Water bodies inside the project's query box that drain to the BRISTOL CHANNEL
@@ -103,7 +121,9 @@ async function main() {
   const features = raw
     .filter((f) => f.geometry?.coordinates?.length)
     .filter((f) => {
-      const why = NORTH_DRAINING_OPCATS.get(f.properties?.opcat_id);
+      const why =
+        NORTH_DRAINING_OPCATS.get(f.properties?.opcat_id) ??
+        EAST_OF_CUTOFF.get(f.properties?.water_body_id);
       if (!why) return true;
       excluded.push({ name: f.properties.water_body_name, why });
       return false;
@@ -125,7 +145,7 @@ async function main() {
     });
 
   const dropped = raw.length - features.length - excluded.length;
-  console.log(`\n  excluded as north/west-draining (${excluded.length}) — Bristol Channel / Celtic Sea, not this project's water:`);
+  console.log(`\n  excluded (${excluded.length}) — north/west-draining, or east of the Beachy Head cutoff (${BEACHY_HEAD_LON}°E):`);
   for (const e of excluded) console.log(`     – ${e.name}  [${e.why}]`);
 
   // Clip to the project box + light simplify, matching the marine layer. The
