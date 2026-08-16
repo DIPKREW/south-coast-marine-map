@@ -70,6 +70,29 @@ export const palette = {
   'erosion-2': '#D49E5E', // moderate — amber
   'erosion-3': '#BE7444', // high — clay
   'erosion-4': '#9C4F2E', // very high — deep rust
+  // Storm overflow ANNUAL SPILL COUNT — pale ash-rose → deep crimson. Same
+  // "pale recedes, deep draws the eye" logic as the erosion ramp, but shifted
+  // to a COOL RED (crimson/wine) so it cannot be mistaken for erosion's warm
+  // amber/rust family where the two sit on the same stretch of coast.
+  'spill-0': '#E3D9D9', // no recorded spills — near-neutral ash
+  'spill-1': '#D3AEB2', // 1–9
+  'spill-2': '#BC7B85', // 10–39
+  'spill-3': '#9C4653', // 40–99
+  'spill-4': '#701F2E', // 100+ — deep wine, the warning end
+  // Live discharge status — a two-state signal plus an honest "no signal".
+  'discharge-on': '#B8322A', // currently discharging — a clear alert red
+  'discharge-off': '#7E8A86', // not discharging — quiet slate outline
+  'discharge-offline': '#BCB6A8', // monitor offline / no signal — faint, recedes
+  // WFD water body ECOLOGICAL status — a blue-green → dun scale. Health reads
+  // as colour: a vivid sea-green at High, draining through sage to a flat dun
+  // at Bad. Distinct in hue from both the erosion (amber) and spill (crimson)
+  // ramps, and lighter/greener than the marine teal it sits beneath.
+  'wfd-high': '#3F8474', // High — sea green
+  'wfd-good': '#6FA491', // Good
+  'wfd-moderate': '#9DB3A5', // Moderate — colour starting to drain
+  'wfd-poor': '#B6A98F', // Poor
+  'wfd-bad': '#9A8468', // Bad — flat dun
+  'wfd-unknown': '#D6D0C2', // not classified — neutral, recedes
 };
 
 export const fonts = {

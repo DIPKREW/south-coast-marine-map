@@ -21,6 +21,7 @@
  *   card          (props) => { title, subtitle?, meta?, note? } for the hover card
  */
 import { palette } from '../design/tokens.js';
+import { loadLiveOverflows } from './liveOverflows.js';
 
 const base = import.meta.env.BASE_URL;
 
@@ -86,6 +87,57 @@ const ha = (v) =>
   v == null || Number.isNaN(Number(v))
     ? null
     : `${Number(v).toLocaleString('en-GB', { maximumFractionDigits: 1 })} ha`;
+
+// ---- Storm overflow + water body helpers ----
+
+// Spill-count bands for the annual return ramp. Chosen from the actual 2025
+// distribution for this coastline (median 15, p75 40, p90 72, max 243), so each
+// band holds a meaningful share rather than piling everything into one colour:
+// 359 / 653 / 803 / 500 / 107 overflows respectively.
+const SPILL_BREAKS = [1, 10, 40, 100];
+const SPILL_BAND_LABELS = ['No spills recorded', '1–9 spills', '10–39 spills', '40–99 spills', '100+ spills'];
+
+const plural = (n, word) => `${n.toLocaleString('en-GB')} ${word}${n === 1 ? '' : 's'}`;
+
+// Hours of discharge — precise while small, rounded once it runs to hundreds.
+const hours = (h) =>
+  h == null || Number.isNaN(Number(h))
+    ? null
+    : `${Number(h).toLocaleString('en-GB', { maximumFractionDigits: Number(h) < 10 ? 1 : 0 })} hours`;
+
+// "3 hours ago" / "2 days ago" — the live feed's timestamps are epoch ms.
+const ago = (ts) => {
+  if (!ts || Number.isNaN(Number(ts))) return null;
+  const mins = Math.round((Date.now() - Number(ts)) / 60000);
+  if (mins < 0) return 'just now';
+  if (mins < 2) return 'just now';
+  if (mins < 60) return `${mins} minutes ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${plural(hrs, 'hour')} ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 31) return `${plural(days, 'day')} ago`;
+  const months = Math.round(days / 30.4);
+  return `${plural(months, 'month')} ago`;
+};
+
+const LIVE_STATUS = {
+  1: 'Discharging now',
+  0: 'Not currently discharging',
+  '-1': 'Monitor offline — no signal',
+};
+
+// WFD ecological status → the plain-English gloss shown under the name.
+const WFD_ECO_NOTE = {
+  High: 'close to undisturbed conditions',
+  Good: 'only a slight departure from natural conditions',
+  Moderate: 'moderately affected by human activity',
+  Poor: 'substantially affected by human activity',
+  Bad: 'severely affected by human activity',
+};
+
+// The Environment Agency's Catchment Data Explorer keys its per-water-body pages
+// on the same WFD id carried in the data, so the link is exact, not a search.
+const CDE = 'https://environment.data.gov.uk/catchment-planning/WaterBody/';
 
 // The full registry — every layer, including the dormant Dorset land layers.
 // Consumers import the filtered `dataLayers` below, not this.
@@ -211,6 +263,88 @@ const allDataLayers = [
     },
   },
   {
+    id: 'storm-live',
+    label: 'Live discharge status',
+    description: 'Discharging right now, or not',
+    group: 'At sea',
+    // Near-real-time status per overflow, fetched at RUNTIME from the National
+    // Storm Overflow Hub (see liveOverflows.js) rather than baked into
+    // /public/data — a stale "live" layer would be worse than none. Default OFF,
+    // so nothing is requested until it is asked for.
+    kind: 'liveoverflow',
+    // `prepare` runs once, on the first toggle-on, and hands back { data }.
+    prepare: () => loadLiveOverflows({ base }),
+    accentVar: 'discharge-on',
+    defaultVisible: false,
+    legend: [
+      { label: 'Discharging now', colorVar: 'discharge-on' },
+      { label: 'Not currently discharging', colorVar: 'discharge-off' },
+      { label: 'Monitor offline — no signal', colorVar: 'discharge-offline' },
+    ],
+    about: {
+      title: 'About live discharge status',
+      body: [
+        "Water companies publish the current state of every storm overflow — discharging or not — to the National Storm Overflow Hub, normally within an hour of it changing. Four companies operate along this coastline: South West Water, Southern Water, Wessex Water and Thames Water.",
+        'This is fetched once, when you switch the layer on, and is not refreshed while the page is open — reload for a newer picture. Where a monitor is offline the dot is drawn faint rather than clear: an overflow with no signal is not the same as one known to be quiet.',
+      ],
+    },
+    card: (p) => ({
+      title: p.name || p.id || 'Storm overflow',
+      subtitle: LIVE_STATUS[String(p.status)] || 'Status unknown',
+      meta: [p.co, p.water ? `into ${p.water}` : null].filter(Boolean).join(' · ') || null,
+      note:
+        [
+          p.status === 1 && p.since ? `Started ${ago(p.since)}` : null,
+          p.status === 0 && p.endedAt ? `Last discharge ended ${ago(p.endedAt)}` : null,
+          p.updated ? `Company last published ${ago(p.updated)}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || null,
+    }),
+  },
+  {
+    id: 'storm-annual',
+    label: 'Annual spill data',
+    description: 'Spills per overflow, 2025 (Environment Agency)',
+    group: 'At sea',
+    // The EA's Event Duration Monitoring annual return: one dot per overflow,
+    // banded by how many times it spilled that year. Default OFF, lazy-loaded.
+    kind: 'spills',
+    data: `${base}data/storm-overflows.geojson`,
+    field: 'spills',
+    accentVar: 'spill-3',
+    defaultVisible: false,
+    paint: {
+      colors: {
+        0: palette['spill-0'], 1: palette['spill-1'], 2: palette['spill-2'],
+        3: palette['spill-3'], 4: palette['spill-4'],
+      },
+      breaks: SPILL_BREAKS,
+    },
+    legend: SPILL_BAND_LABELS.map((label, i) => ({ label, colorVar: `spill-${i}` })),
+    about: {
+      title: 'About annual spill data',
+      body: [
+        "Every storm overflow in England carries an event duration monitor, and once a year the water companies report to the Environment Agency how many times each one discharged and for how long. This is that return for 2025 — the most recent published — for the 2,422 overflows in the mapped area, which together recorded 65,288 spills. 359 of them recorded none at all; the busiest spilled 243 times.",
+        'A spill is counted by the 12–24 hour method, so one long discharge counts once rather than continuously. Count and duration therefore answer different questions and are best read together: an overflow with few but very long spills looks calm on count alone.',
+        'A monitor that ran for only part of the year still reports, so a low count can mean a quiet outfall or a patchy monitor. The hover card shows how much of the year each monitor was actually operating.',
+      ],
+    },
+    card: (p) => ({
+      title: p.name || p.id || 'Storm overflow',
+      subtitle: p.spills === 0 ? `No spills recorded in ${p.year}` : `${plural(p.spills, 'spill')} in ${p.year}`,
+      meta: [hours(p.hours), p.co].filter(Boolean).join(' · ') || null,
+      note:
+        [
+          p.water ? `Discharges to ${p.water}` : null,
+          p.bathing ? `Bathing water: ${p.bathing}` : null,
+          p.cover != null && p.cover < 90 ? `Monitor operational ${Math.round(p.cover)}% of the year` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || null,
+    }),
+  },
+  {
     id: 'marine',
     label: 'Marine protected areas',
     description: 'MCZs, marine SACs & SPAs',
@@ -232,7 +366,7 @@ const allDataLayers = [
     about: {
       title: 'About marine protected areas',
       body: [
-        "Dorset's seas hold a network of protected areas — Marine Conservation Zones, marine Special Areas of Conservation and Special Protection Areas. They protect habitats from the seagrass meadows of Studland Bay, home to native seahorses, to the recovering reefs of Lyme Bay — one of the country's flagship marine protected areas, where damaging bottom-trawling has been excluded since 2008.",
+        "The seas between Land's End and Beachy Head hold a network of protected areas — Marine Conservation Zones, marine Special Areas of Conservation and Special Protection Areas. They protect habitats from the seagrass meadows of Studland Bay, home to native seahorses, to the recovering reefs of Lyme Bay — one of the country's flagship marine protected areas, where damaging bottom-trawling has been excluded since 2008.",
       ],
     },
     card: (p) => ({
@@ -279,6 +413,50 @@ const allDataLayers = [
       title: `${EROSION_LABEL[p.risk] ?? 'Unknown'} erosion risk`,
       subtitle: 'Projected shoreline recession by 2055',
       meta: p.dist != null ? `≈ ${p.dist} m, no future intervention` : null,
+    }),
+  },
+  {
+    id: 'wfd',
+    label: 'Water body status',
+    description: 'Ecological & chemical health',
+    group: 'At sea',
+    // The EA's own Water Framework Directive classification of each stretch of
+    // coast and estuary. A broad wash BENEATH the erosion strips and the marine
+    // outlines, so those keep the foreground. Default OFF, lazy-loaded.
+    kind: 'wfd',
+    data: `${base}data/wfd-coastal.geojson`,
+    field: 'eco',
+    accentVar: 'wfd-good',
+    defaultVisible: false,
+    paint: {
+      colors: {
+        High: palette['wfd-high'], Good: palette['wfd-good'], Moderate: palette['wfd-moderate'],
+        Poor: palette['wfd-poor'], Bad: palette['wfd-bad'], unknown: palette['wfd-unknown'],
+      },
+      fillOpacity: 0.42,
+      fillOpacityHover: 0.62,
+    },
+    legend: [
+      { label: 'High', colorVar: 'wfd-high' },
+      { label: 'Good', colorVar: 'wfd-good' },
+      { label: 'Moderate', colorVar: 'wfd-moderate' },
+      { label: 'Poor', colorVar: 'wfd-poor' },
+      { label: 'Bad', colorVar: 'wfd-bad' },
+    ],
+    about: {
+      title: 'About water body status',
+      body: [
+        'The Environment Agency divides the coast and its estuaries into water bodies and classifies each one under the Water Framework Directive. Colour here shows ECOLOGICAL status — a five-band judgement, High to Bad, built from biology (plankton, seaweeds, seabed life), supporting chemistry such as dissolved oxygen and nitrogen, and specific pollutants.',
+        'Of the 67 water bodies in the mapped area in the 2025 classification, 17 are Good, 49 Moderate and one Poor. None reach High.',
+        'CHEMICAL status is shown on the hover card but deliberately not mapped. Since 2019 it counts substances that exceed their limits right across England — mercury and certain flame retardants among them — so all 67 water bodies here fail it. That is a real result, but colouring by it would paint one flat wash and tell you nothing about the difference between one estuary and the next.',
+      ],
+    },
+    card: (p) => ({
+      title: p.name || 'Water body',
+      subtitle: p.wbtype === 'Transitional' ? 'Estuary (transitional water body)' : 'Coastal water body',
+      meta: [p.eco ? `Ecological: ${p.eco}` : null, p.chem ? `Chemical: ${p.chem}` : null].filter(Boolean).join(' · ') || null,
+      note: [WFD_ECO_NOTE[p.eco], p.year ? `${p.year} classification` : null].filter(Boolean).join(' · ') || null,
+      link: p.id ? { href: CDE + p.id, label: 'Catchment Data Explorer ↗' } : null,
     }),
   },
   {
@@ -415,7 +593,16 @@ const allDataLayers = [
 const allPanelGroups = [
   { label: 'Designations', layerIds: ['sssi', 'hona'] },
   // Marine & coastal — each layer carries its own legend + about (per-layer).
-  { label: 'At sea', layerIds: ['marine', 'ncerm'] },
+  // The two storm overflow layers sit under their own subheading: they share a
+  // subject but are different KINDS of thing — a fixed annual report against a
+  // live status feed — and shouldn't read as two views of one dataset. The WFD
+  // water body layer stays a peer of the others: it is the Environment Agency's
+  // own assessment of the water, not a record of what was discharged into it.
+  {
+    label: 'At sea',
+    layerIds: ['marine', 'ncerm', 'wfd'],
+    subgroups: [{ label: 'Storm overflows', layerIds: ['storm-annual', 'storm-live'] }],
+  },
   { label: 'Water', layerIds: ['water'] },
   // The Land group's two layers (ALC quality, CROME use) each carry their own
   // legend + about drop-down (per-layer), so no group-level about here.
@@ -448,5 +635,17 @@ const allPanelGroups = [
 export const dataLayers = allDataLayers.filter((l) => !isHidden(l.id));
 
 export const panelGroups = allPanelGroups
-  .map((g) => ({ ...g, layerIds: g.layerIds.filter((id) => !isHidden(id)) }))
-  .filter((g) => g.layerIds.length > 0);
+  .map((g) => ({
+    ...g,
+    layerIds: g.layerIds.filter((id) => !isHidden(id)),
+    // Subgroups are filtered the same way, and an emptied one is dropped so no
+    // bare subheading is left behind.
+    ...(g.subgroups
+      ? {
+          subgroups: g.subgroups
+            .map((s) => ({ ...s, layerIds: s.layerIds.filter((id) => !isHidden(id)) }))
+            .filter((s) => s.layerIds.length > 0),
+        }
+      : {}),
+  }))
+  .filter((g) => g.layerIds.length > 0 || g.subgroups?.length > 0);

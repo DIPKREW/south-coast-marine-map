@@ -27,6 +27,7 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import mapshaper from 'mapshaper';
+import { SOUTH_COAST_BBOX } from './lib/southcoast.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dir, '../public/data/marine.geojson');
@@ -45,7 +46,9 @@ const ORG = 'https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services';
 // East (0.6) and north (51.1) are unchanged: the easternmost selected site,
 // Beachy Head East MCZ, ends at 0.572; the northernmost, Solent & Southampton
 // Water SPA, at 50.938.
-const SOUTH_COAST_BBOX = [-6.2, 49.85, 0.6, 51.1];
+//
+// The value now lives in scripts/lib/southcoast.mjs so every fetch script clips
+// to exactly the same box; the reasoning above is what sized it.
 
 const PAGE_SIZE = 1000;
 

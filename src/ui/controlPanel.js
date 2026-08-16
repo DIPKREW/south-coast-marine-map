@@ -61,17 +61,20 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
     const syncers = [];
     const runSyncers = () => syncers.forEach((fn) => fn());
 
-    for (const id of group.layerIds) {
+    // Render one layer's toggle plus its optional selector / legend / about into
+    // `into`. Shared by the group's own layers and any subgroup's, so a toggle
+    // under a subheading behaves exactly like one directly under the group.
+    const addLayerControls = (id, into) => {
       const layer = byId.get(id);
       const controller = layer && controllers.get(id);
-      if (!controller) continue;
+      if (!controller) return;
       groupIds.push(id);
-      section.appendChild(buildToggle(layer, controller, runSyncers));
+      into.appendChild(buildToggle(layer, controller, runSyncers));
 
       // Optional per-layer species selector (one species at a time).
       if (layer.species && controller.setSpecies) {
         const selector = buildSelector(layer, controller);
-        section.appendChild(selector.el);
+        into.appendChild(selector.el);
         const sync = () => selector.setVisible(controller.isVisible());
         syncers.push(sync);
         sync();
@@ -80,7 +83,7 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
       // Optional per-layer legend, shown only while that layer is on.
       if (layer.legend) {
         const legend = buildLegend(layer.legend);
-        section.appendChild(legend.el);
+        into.appendChild(legend.el);
         const sync = () => legend.setVisible(controller.isVisible());
         syncers.push(sync);
         sync();
@@ -89,7 +92,7 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
       // Optional per-layer about drop-down, shown only while that layer is on.
       if (layer.about) {
         const about = buildAbout(layer.about);
-        section.appendChild(about.el);
+        into.appendChild(about.el);
         let wasOn = controller.isVisible();
         const sync = () => {
           const on = controller.isVisible();
@@ -100,7 +103,40 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
         syncers.push(sync);
         sync();
       }
+    };
+
+    for (const id of group.layerIds) addLayerControls(id, section);
+
+    // Optional SUBGROUPS — a quieter subheading inside the group, for layers
+    // that belong together but are different kinds of thing (the annual storm
+    // overflow return vs the live status feed).
+    for (const sub of group.subgroups ?? []) {
+      const subSection = el('div', 'panel__subgroup');
+      const subHeading = el('p', 'panel__subsection-label');
+      subHeading.textContent = sub.label;
+      subSection.appendChild(subHeading);
+      const before = groupIds.length;
+      for (const id of sub.layerIds) addLayerControls(id, subSection);
+      if (groupIds.length === before) continue; // nothing rendered — no bare heading
+
+      if (sub.about) {
+        const about = buildAbout(sub.about);
+        subSection.appendChild(about.el);
+        const ids = sub.layerIds.filter((id) => controllers.get(id));
+        const isActive = () => ids.some((id) => controllers.get(id).isVisible());
+        let wasActive = isActive();
+        const sync = () => {
+          const active = isActive();
+          if (active && !wasActive) about.open();
+          about.setVisible(active);
+          wasActive = active;
+        };
+        syncers.push(sync);
+        sync();
+      }
+      section.appendChild(subSection);
     }
+
     if (!groupIds.length) continue;
 
     // Optional explanation drop-down for the whole group.

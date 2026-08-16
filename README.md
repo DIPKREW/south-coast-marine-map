@@ -22,6 +22,21 @@ counties.
   could erode by 2055 with no future intervention (Environment Agency NCERM).
   **Off by default.** *Note: this layer's bundled data is still **Dorset-only** —
   it has not yet been rebuilt for the wider coastline.*
+- **Water body status** — a blue-green→dun scale — the Environment Agency's WFD
+  ecological classification of the 67 coastal and estuarine water bodies on this
+  coast (Cycle 4, 2025). Chemical status is on the card but not mapped, because
+  every one of them fails it. **Off by default.**
+- **Storm overflows** (a subgroup, two layers):
+  - **Annual spill data** — a pale rose→deep wine ramp — how many times each of
+    2,422 storm overflows discharged in 2025 and for how long, from the
+    Environment Agency's Event Duration Monitoring annual return. **Off by
+    default.**
+  - **Live discharge status** — is this overflow discharging *right now*, from the
+    National Storm Overflow Hub. The only layer fetched at runtime; no API key
+    needed. **Off by default.**
+
+Every **off by default** layer is also **lazy** — it downloads nothing until its
+toggle is first switched on (see [Layers load lazily](#layers-load-lazily)).
 
 **Dormant behind the feature flag** (Dorset-only data): SSSIs, High Opportunity
 Nature Areas, Dorset Wildlife Trust reserves & visitor centres, rivers &
@@ -65,6 +80,8 @@ npm run data:crome       # rebuild Field crops (CROME) vector tiles (needs tippe
 npm run data:species     # rebuild the Notable species grid from the NBN Atlas
 npm run data:marine      # rebuild marine protected areas (MCZ / marine SAC / coastal SPA)
 npm run data:ncerm       # rebuild coastal erosion risk from the EA NCERM (WFS)
+npm run data:storm-overflows # rebuild the EA EDM storm overflow annual return (latest year)
+npm run data:wfd         # rebuild WFD coastal & transitional water body classifications
 ```
 
 ## How it looks the way it does
@@ -156,8 +173,35 @@ switch; the panel groups them under *Designations*, *At sea*, *Water*, *Land*,
 *Species* and *Dorset Wildlife Trust*.
 
 Draw order, top to bottom: visitor centres → DWT reserves → SSSI → HONA → water →
-marine protected areas → coastal erosion → species grid → CROME field crops → ALC
-(the base wash at the very bottom).
+live discharge status → annual spill data → marine protected areas → coastal
+erosion → WFD water body status → species grid → CROME field crops → ALC (the
+base wash at the very bottom).
+
+### Layers load lazily
+
+A layer that is **off by default fetches nothing until its toggle is first
+switched on**. `map.addSource` downloads immediately whether or not anything is
+drawn, so under the eager pattern a default-off layer such as the 2.7 MB
+`marine.geojson` cost every visitor a full download they never asked for.
+
+`deferLayer` (`src/map/dataLayers.js`) wraps any layer with
+`defaultVisible: false`: the real adder isn't called at all until `show()`. Once
+built it **stays** built — hiding only fades it out — so the data is fetched at
+most once per page load and a second toggle-on is instant. Two details make it
+safe:
+
+- **Draw order** is reserved up front with an **anchor**: an empty line layer
+  over an empty source, which can never render, added in the layer's slot in
+  config order. The real layers are later inserted directly beneath it, so the
+  stack is identical no matter which toggle the visitor presses first.
+- **Hit testing** — `queryRenderedFeatures` throws on a layer id that isn't in
+  the style, so the hover registry only learns a deferred layer's ids when they
+  exist (via the same `queryLayersAsync` the PMTiles layer already used), while
+  `isVisible()` reports *intent* so the panel's legend and About respond on the
+  click rather than when the download lands.
+
+CROME is the one exception: it does its own deferred fetch already, because it
+must have the PMTiles archive in hand before it can add a source at all.
 
 > **A note on extent.** The marine and coastal layers are the one exception to the
 > land-mask rule above: clipping them to the Dorset LNRS land boundary would erase
@@ -457,6 +501,76 @@ risk ramp; the committed `public/data/ncerm.geojson` stores `{ risk, dist }` onl
 - **Hover** — the risk band + the projected recession ("≈ N m, no future
   intervention"). Lowest hover priority — any specific site sits on top.
 
+### Storm overflows — two layers, deliberately separate
+
+Both sit under a **Storm overflows** subheading inside *At sea*, because they
+share a subject but are different kinds of thing: a fixed annual report against a
+live status feed. Both are **off by default** and lazy-loaded.
+
+**Annual spill data** — `npm run data:storm-overflows`
+(`scripts/fetch-storm-overflows.mjs`) reads the Environment Agency's **Event
+Duration Monitoring annual return** from its open ArcGIS FeatureServer. The
+service holds every return from 2021 on; the script takes the **most recent year
+present** rather than hard-coding one, and reports which it used. For 2025 that
+is **2,422 overflows** in the project box, which together recorded **65,288
+spills**.
+
+- **Style** — one dot per overflow, coloured *and* sized by spill count on a pale
+  ash-rose → deep wine ramp (`--spill-0..4`). Banded, not continuous: the counts
+  are long-tailed (median 15, max 243), so a linear ramp would flatten almost
+  everything into the pale end. Breaks are `0 / 1–9 / 10–39 / 40–99 / 100+`,
+  holding 359 / 653 / 803 / 500 / 107 overflows. The ramp is a **cool** red so it
+  can't be confused with the erosion ramp's warm amber on the same coastline.
+- **Hover** — site name, spill count and year, total discharge hours, water
+  company, receiving water, bathing water where applicable, and the monitor's
+  operational coverage when it ran for less than 90% of the year.
+
+**Live discharge status** — the only layer fetched at **runtime**
+(`src/map/liveOverflows.js`), because a status that is hours old is worse than
+useless. The National Storm Overflow Hub (Stream) is a map over one **public,
+anonymous ArcGIS feature service per water company** rather than a single
+national endpoint, so the module queries the four that operate on this coastline
+— South West Water, Southern Water, Wessex Water, Thames Water — pages each one,
+and merges (~2,460 overflows). **No API key and no registration**; the services
+send `access-control-allow-origin: *`, so the browser reads them directly.
+
+- Fetched **once**, on the first toggle-on. There is deliberately **no polling
+  loop**: companies publish within ~60 minutes of a change, so a refresh is a
+  real feature worth designing (with a visible "as of" time and a manual
+  refresh), not something to bolt on invisibly.
+- A failure of **one** company degrades rather than breaks — the layer draws what
+  did come back and warns about what didn't. Only an all-companies failure marks
+  the layer unavailable.
+- **Style** — a filled alert dot for *discharging now*, a quiet hollow ring for
+  *not discharging*, and a third, deliberately faint state for a monitor that is
+  **offline**: an overflow with no signal is not the same as one known to be
+  quiet, and drawing it as either would be a lie. `circle-sort-key` puts the
+  discharging dots on top of the far more numerous quiet ones.
+- The live feed carries no site name, only the same unique id as the annual
+  return — so the build writes a compact `storm-overflow-names.json` lookup
+  (85 KB) alongside the GeoJSON, and the live layer joins on it for a real name.
+
+### WFD water body status — a blue-green → dun scale
+
+`npm run data:wfd` (`scripts/fetch-wfd-coastal.mjs`) reads the **Water Framework
+Directive Transitional and Coastal Water Bodies, Cycle 4 Classification 2025** —
+the Environment Agency's own assessment of the water, which is why it sits as a
+peer of the other *At sea* layers rather than under *Storm overflows*. **67 water
+bodies** in the project box (43 estuarine, 24 coastal).
+
+- **Style** — filled polygons coloured by **ecological** status on a sea-green →
+  dun scale (`--wfd-high..bad`), health reading as colour. A broad wash beneath
+  the erosion strips and marine outlines, so those keep the foreground.
+- **Chemical status is reported on the card but deliberately not mapped.** Since
+  2019 it counts substances above their limits right across England — mercury and
+  certain flame retardants among them — so **all 67** water bodies here fail it.
+  Colouring by it would paint one flat wash and say nothing about the difference
+  between one estuary and the next.
+- **Hover** — name, coastal/estuarine, both classifications, a plain-English
+  gloss of the ecological band, and a link to that water body's **Catchment Data
+  Explorer** page (the WFD id in the data is the same key the EA's site uses, so
+  the link is exact rather than a search).
+
 ### Collapsible panel
 
 The panel collapses to a small chevron tab in the same top-left corner, so it
@@ -506,7 +620,10 @@ is actually drawing, so the Dorset land credits are gated behind
 
 > Base map © OpenFreeMap / © OpenStreetMap contributors ·
 > **Marine data © Natural England / JNCC, OGL** ·
-> Coastal erosion © Environment Agency, OGL.
+> Coastal erosion © Environment Agency, OGL ·
+> **Storm overflow annual returns (EDM) & WFD water body status © Environment
+> Agency, OGL** ·
+> **Live discharge status © the water companies via Stream / Water UK.**
 
 **Added when `SHOW_DORSET_LAND_LAYERS` is `true`:**
 
@@ -528,11 +645,13 @@ src/
     createMap.js            MapLibre init, initial view, minimal controls
     mapStyle.js             ★ the bespoke base style (OpenMapTiles → palette)
     layers.js               ★ data-layer config + panel groups (about + legends)
-    dataLayers.js           polygon / point / mixed / waterways / choropleth / marine / erosion layers, priority hover
+    dataLayers.js           polygon / point / mixed / waterways / choropleth / marine / erosion / spills / live / WFD layers, lazy loading, priority hover
+    liveOverflows.js        runtime fetch + merge of the per-company live storm overflow feeds
   ui/
     controlPanel.js         floating panel, grouped toggles, about drop-down, legend
     infoCard.js             the on-brand hover info card
 scripts/lib/dorset.mjs      shared Dorset bbox + LNRS clip-mask loader
+scripts/lib/southcoast.mjs  shared project bbox + ArcGIS paging/count/rounding helpers
 scripts/lib/geo.mjs         geodesic area + point-in-polygon + haversine (dependency-free)
 scripts/dorset-lnrs-area.geojson  the Dorset LNRS boundary, the shared clip mask
 scripts/fetch-sssi.mjs      page + clip + simplify the SSSI GeoJSON
@@ -547,6 +666,8 @@ scripts/build-crome.mjs     OGC API → category-map → dissolve → tile CROME
 scripts/build-species.mjs   NBN Atlas facet → OS-grid parse → species record grid
 scripts/fetch-marine.mjs    NE/JNCC ArcGIS → curated allow-list → clip to coastal box (overlaps kept)
 scripts/build-ncerm.mjs     EA NCERM WFS → band recession distance → coastal erosion risk
+scripts/fetch-storm-overflows.mjs  EA EDM annual return (latest year) → spill count + duration per overflow
+scripts/fetch-wfd-coastal.mjs      EA WFD Cycle 4 → coastal/estuarine water bodies + ecological & chemical class
 public/data/sssi.geojson    bundled SSSI polygons (committed)
 public/data/hona.geojson    bundled opportunity areas (committed)
 public/data/dwt-reserves.geojson  bundled DWT reserves from OSM (committed)
@@ -559,6 +680,9 @@ public/data/crome.pmtiles   Field crops (CROME) dissolved field blocks, vector t
 public/data/species-grid.geojson  NBN species record grid — cells only, no coordinates
 public/data/marine.geojson  marine protected areas — MCZ / marine SAC / coastal SPA (outlined)
 public/data/ncerm.geojson   coastal erosion risk frontages — { risk, dist } (committed)
+public/data/storm-overflows.geojson  EDM annual return — spills + duration per overflow (committed)
+public/data/storm-overflow-names.json  id → site-name lookup, joined by the LIVE layer (committed)
+public/data/wfd-coastal.geojson  WFD coastal & transitional water bodies + classification (committed)
 ```
 
 ## Adding a layer (built for growth)

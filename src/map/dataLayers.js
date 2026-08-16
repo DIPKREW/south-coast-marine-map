@@ -20,8 +20,13 @@ const FADE_MS = 350;
 // A feature-state reference, omitting sourceLayer for GeoJSON sources.
 const featureRef = (r) => (r.sourceLayer ? { source: r.source, sourceLayer: r.sourceLayer, id: r.id } : { source: r.source, id: r.id });
 
+// An empty, never-drawn source that exists only so deferred layers can hang a
+// draw-order ANCHOR off it. See deferLayer.
+const ANCHOR_SOURCE = 'layer-anchor-source';
+
 export function applyDataLayers(map, layers) {
   const card = new InfoCard(map.getContainer());
+  map.addSource(ANCHOR_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
   // Shared hover state so toggling a layer off can clear its emphasis.
   const hover = { current: null };
@@ -36,10 +41,17 @@ export function applyDataLayers(map, layers) {
   const registry = []; // { layer, queryId, sourceId, sourceLayer, priority } per hit-test layer
   let beforeId; // insertion anchor — keeps earlier layers on top
 
-  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer };
+  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, wfd: addWfdLayer };
   for (const layer of layers) {
     const add = adders[layer.kind] || addPolygonLayer;
-    const entry = add(map, layer, beforeId, { card, clearHover });
+    // A layer that starts hidden is DEFERRED: neither its source nor its layers
+    // exist until the toggle is first switched on, so its data is never fetched
+    // for someone who never asks to see it. (croptiles does its own deferred
+    // fetch already — it needs the archive in hand before it can add a source.)
+    const defer = layer.defaultVisible === false && layer.kind !== 'croptiles';
+    const entry = defer
+      ? deferLayer(map, layer, beforeId, { card, clearHover }, add)
+      : add(map, layer, beforeId, { card, clearHover });
     controllers.set(layer.id, entry.controller);
     // A layer may expose several hit-test layers (polygons, markers, water lines…),
     // each with a hover priority so the most specific feature wins regardless of
@@ -65,6 +77,104 @@ export function applyDataLayers(map, layers) {
 }
 
 const hoverExpr = (a, b) => ['case', ['boolean', ['feature-state', 'hover'], false], a, b];
+
+/**
+ * LAZY LOADING — wrap a layer so nothing is fetched until it is first shown.
+ *
+ * A layer that starts hidden still costs a full download under the eager
+ * pattern, because `map.addSource` fetches immediately whether or not anything
+ * is drawn. Here the real adder is not called at all until `show()`, so a
+ * default-off layer is free for anyone who never switches it on. Once built it
+ * STAYS built: hiding only fades it out, so a second toggle-on is instant and
+ * the data is fetched at most once per page load.
+ *
+ * Two problems this has to solve:
+ *
+ *  • DRAW ORDER. Config order is priority order, and layers are stacked by
+ *    inserting each one beneath the last. A layer that arrives late has lost its
+ *    place in that sequence. So an ANCHOR — an empty line layer over an empty
+ *    source, which can never render — is added in the layer's slot up front, and
+ *    the real layers are later inserted directly beneath it. Order then follows
+ *    config regardless of which toggle the person happens to press first.
+ *
+ *  • HIT TESTING. queryRenderedFeatures throws on a layer id that isn't in the
+ *    style, so the hover registry must not learn this layer's ids until they
+ *    exist. `queryLayersAsync` (already handled by applyDataLayers for the
+ *    PMTiles layer) resolves at build time, and `isVisible()` reports INTENT, so
+ *    the registry is both complete and safe at every moment.
+ */
+function deferLayer(map, layer, beforeId, ctx, add) {
+  const anchorId = `${layer.id}-anchor`;
+  map.addLayer({ id: anchorId, type: 'line', source: ANCHOR_SOURCE, layout: { visibility: 'none' } }, beforeId);
+
+  let real = null; // the entry from the real adder, once built
+  let want = false; // what the toggle is asking for, whether or not it's built
+  let failed = false;
+  let building = false;
+  const readyCbs = [];
+  const failCbs = [];
+  let resolveQuery;
+  const queryLayersAsync = new Promise((res) => { resolveQuery = res; });
+
+  // Species layers pick one species at a time; remember the choice made before
+  // the layer exists so the build starts on the right one.
+  let species = layer.defaultSpecies ?? layer.species?.[0]?.key;
+
+  const build = async () => {
+    if (real || failed || building) return;
+    building = true;
+    try {
+      // `prepare` lets a layer assemble its data at runtime (the live storm
+      // overflow feed queries several APIs) before anything is added to the map.
+      const extra = layer.prepare ? await layer.prepare() : null;
+      // defaultVisible true: we are building precisely because it was asked for.
+      real = add(map, { ...layer, ...extra, defaultVisible: true, defaultSpecies: species }, anchorId, ctx);
+      resolveQuery(real.queryLayers ?? []);
+      // Switched off again while the data was in flight — respect that.
+      if (!want) real.controller.hide();
+      readyCbs.forEach((cb) => cb());
+    } catch (err) {
+      console.warn(`[${layer.id}] "${layer.label}" unavailable:`, err);
+      failed = true;
+      want = false;
+      resolveQuery([]); // no hit-test layers; the map carries on without it
+      failCbs.forEach((cb) => cb());
+    } finally {
+      building = false;
+    }
+  };
+
+  const controller = {
+    // INTENT, not "is it in the style yet" — so the panel's legend and About
+    // sections respond on the click, not when the download lands.
+    isVisible: () => want,
+    show: () => {
+      if (want || failed) return;
+      want = true;
+      real ? real.controller.show() : build();
+    },
+    hide: () => {
+      if (!want) return;
+      want = false;
+      real?.controller.hide();
+    },
+    onReady: (cb) => (real ? cb() : readyCbs.push(cb)),
+    onUnavailable: (cb) => (failed ? cb() : failCbs.push(cb)),
+  };
+  controller.toggle = () => (want ? controller.hide() : controller.show());
+
+  if (layer.species) {
+    controller.getSpecies = () => species;
+    controller.setSpecies = (key) => {
+      species = key;
+      real?.controller.setSpecies(key);
+    };
+  }
+
+  // bottomId is the anchor: the next (lower) layer stacks beneath this layer's
+  // reserved slot, so config order holds whether or not this one ever builds.
+  return { controller, queryLayers: [], queryLayersAsync, sourceId: `${layer.id}-source`, bottomId: anchorId };
+}
 
 function addPolygonLayer(map, layer, beforeId, { card, clearHover }) {
   const sourceId = `${layer.id}-source`;
@@ -465,6 +575,185 @@ function addErosionLayer(map, layer, beforeId, { card, clearHover }) {
   });
 
   return { controller, queryLayers: [{ id: fillId, priority: 14 }], sourceId, bottomId: fillId };
+}
+
+// STORM OVERFLOW ANNUAL SPILL DATA (EA Event Duration Monitoring return). One
+// dot per overflow, coloured AND sized by how many times it spilled that year —
+// colour carries the reading, size gives the busiest outfalls presence at low
+// zoom without turning the coast into a solid band. Banded, not continuous: the
+// counts are long-tailed (median 15, max 243), so a linear ramp would flatten
+// almost everything into the pale end.
+function addSpillLayer(map, layer, beforeId, { card, clearHover }) {
+  const sourceId = `${layer.id}-source`;
+  const dotId = `${layer.id}-dot`;
+  const c = layer.paint.colors;
+  const breaks = layer.paint.breaks; // e.g. [1, 10, 40, 100]
+  const startVisible = layer.defaultVisible !== false;
+  const hb = ['boolean', ['feature-state', 'hover'], false];
+
+  map.addSource(sourceId, { type: 'geojson', data: layer.data, generateId: true });
+
+  const step = (outputs) => ['step', ['get', layer.field], outputs[0], ...breaks.flatMap((b, i) => [b, outputs[i + 1]])];
+  const colorExpr = step([c[0], c[1], c[2], c[3], c[4]]);
+  // Radius: a zoom interpolate (which must stay top-level) whose every stop is
+  // scaled by the band and lifted on hover.
+  const scale = step([0.72, 0.86, 1, 1.18, 1.4]);
+  const r = (base) => ['*', base, scale, ['case', hb, 1.5, 1]];
+
+  map.addLayer(
+    {
+      id: dotId, type: 'circle', source: sourceId,
+      layout: { visibility: startVisible ? 'visible' : 'none', 'circle-sort-key': ['get', layer.field] },
+      paint: {
+        'circle-color': colorExpr,
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, r(2.1), 10, r(3.3), 13, r(5), 16, r(6.8)],
+        'circle-stroke-color': palette.surface,
+        'circle-stroke-width': hoverExpr(1.4, 0.7),
+        'circle-opacity': startVisible ? 0.92 : 0,
+        'circle-stroke-opacity': startVisible ? 0.9 : 0,
+        'circle-radius-transition': { duration: 150 },
+        'circle-opacity-transition': { duration: FADE_MS },
+        'circle-stroke-opacity-transition': { duration: FADE_MS },
+      },
+    },
+    beforeId,
+  );
+
+  const controller = makeController(map, {
+    layerIds: [dotId], sourceId, startVisible, card, clearHover,
+    onShow: () => {
+      map.setPaintProperty(dotId, 'circle-opacity', 0.92);
+      map.setPaintProperty(dotId, 'circle-stroke-opacity', 0.9);
+    },
+    onHide: () => {
+      map.setPaintProperty(dotId, 'circle-opacity', 0);
+      map.setPaintProperty(dotId, 'circle-stroke-opacity', 0);
+    },
+  });
+
+  // Point markers beat every area layer at the same spot.
+  return { controller, queryLayers: [{ id: dotId, priority: 56 }], sourceId, bottomId: dotId };
+}
+
+// LIVE DISCHARGE STATUS (National Storm Overflow Hub). A two-state signal —
+// a filled alert dot for an overflow that is discharging right now, a quiet
+// hollow ring for one that isn't — plus a third, deliberately faint state for a
+// monitor that is offline, which is neither "clean" nor "spilling" and should
+// not be drawn as either. `circle-sort-key` on status puts the discharging dots
+// on top of the (far more numerous) quiet ones.
+function addLiveOverflowLayer(map, layer, beforeId, { card, clearHover }) {
+  const sourceId = `${layer.id}-source`;
+  const dotId = `${layer.id}-dot`;
+  const startVisible = layer.defaultVisible !== false;
+  const hb = ['boolean', ['feature-state', 'hover'], false];
+  const byStatus = (on, off, offline) => ['match', ['get', 'status'], 1, on, 0, off, offline];
+
+  map.addSource(sourceId, { type: 'geojson', data: layer.data, generateId: true });
+
+  map.addLayer(
+    {
+      id: dotId, type: 'circle', source: sourceId,
+      layout: { visibility: startVisible ? 'visible' : 'none', 'circle-sort-key': ['get', 'status'] },
+      paint: {
+        // Discharging is a solid disc; the other two are hollow (paper-filled).
+        'circle-color': byStatus(palette['discharge-on'], palette.surface, palette.surface),
+        'circle-stroke-color': byStatus(palette['discharge-on'], palette['discharge-off'], palette['discharge-offline']),
+        'circle-radius': ['interpolate', ['linear'], ['zoom'],
+          7, ['*', byStatus(3.4, 2.2, 1.9), ['case', hb, 1.5, 1]],
+          11, ['*', byStatus(5, 3.2, 2.7), ['case', hb, 1.5, 1]],
+          15, ['*', byStatus(7.5, 4.8, 4), ['case', hb, 1.5, 1]],
+        ],
+        'circle-stroke-width': hoverExpr(2.2, 1.4),
+        'circle-opacity': startVisible ? byStatus(0.95, 0.85, 0.5) : 0,
+        'circle-stroke-opacity': startVisible ? byStatus(1, 0.85, 0.5) : 0,
+        'circle-radius-transition': { duration: 150 },
+        'circle-opacity-transition': { duration: FADE_MS },
+        'circle-stroke-opacity-transition': { duration: FADE_MS },
+      },
+    },
+    beforeId,
+  );
+
+  const opacityExpr = byStatus(0.95, 0.85, 0.5);
+  const strokeOpacityExpr = byStatus(1, 0.85, 0.5);
+  const controller = makeController(map, {
+    layerIds: [dotId], sourceId, startVisible, card, clearHover,
+    onShow: () => {
+      map.setPaintProperty(dotId, 'circle-opacity', opacityExpr);
+      map.setPaintProperty(dotId, 'circle-stroke-opacity', strokeOpacityExpr);
+    },
+    onHide: () => {
+      map.setPaintProperty(dotId, 'circle-opacity', 0);
+      map.setPaintProperty(dotId, 'circle-stroke-opacity', 0);
+    },
+  });
+
+  // Slightly above the annual dots: "what is happening now" is the more
+  // specific answer where the two sit on the same outfall.
+  return { controller, queryLayers: [{ id: dotId, priority: 58 }], sourceId, bottomId: dotId };
+}
+
+// WFD COASTAL & TRANSITIONAL WATER BODY STATUS. Filled polygons over the sea and
+// estuaries, coloured by ECOLOGICAL status only — chemical status is reported in
+// the card but not mapped, because virtually every water body in England now
+// fails it on nationwide persistent substances, so it would paint one flat
+// colour and say nothing. A soft outline keeps neighbouring bodies apart.
+function addWfdLayer(map, layer, beforeId, { card, clearHover }) {
+  const sourceId = `${layer.id}-source`;
+  const fillId = `${layer.id}-fill`;
+  const lineId = `${layer.id}-line`;
+  const c = layer.paint.colors;
+  const startVisible = layer.defaultVisible !== false;
+  const fillOpacityExpr = hoverExpr(layer.paint.fillOpacityHover, layer.paint.fillOpacity);
+
+  map.addSource(sourceId, { type: 'geojson', data: layer.data, generateId: true });
+
+  const colorExpr = ['match', ['get', layer.field],
+    'High', c.High, 'Good', c.Good, 'Moderate', c.Moderate, 'Poor', c.Poor, 'Bad', c.Bad,
+    c.unknown,
+  ];
+
+  map.addLayer(
+    {
+      id: fillId, type: 'fill', source: sourceId,
+      layout: { visibility: startVisible ? 'visible' : 'none' },
+      paint: {
+        'fill-color': colorExpr,
+        'fill-opacity': startVisible ? fillOpacityExpr : 0,
+        'fill-opacity-transition': { duration: FADE_MS }, 'fill-antialias': true,
+      },
+    },
+    beforeId,
+  );
+  map.addLayer(
+    {
+      id: lineId, type: 'line', source: sourceId,
+      layout: { visibility: startVisible ? 'visible' : 'none', 'line-join': 'round' },
+      paint: {
+        'line-color': colorExpr,
+        'line-width': hoverExpr(2.2, 0.8),
+        'line-opacity': startVisible ? 0.75 : 0,
+        'line-opacity-transition': { duration: FADE_MS }, 'line-width-transition': { duration: 150 },
+      },
+    },
+    beforeId,
+  );
+
+  const controller = makeController(map, {
+    layerIds: [fillId, lineId], sourceId, startVisible, card, clearHover,
+    onShow: () => {
+      map.setPaintProperty(fillId, 'fill-opacity', fillOpacityExpr);
+      map.setPaintProperty(lineId, 'line-opacity', 0.75);
+    },
+    onHide: () => {
+      map.setPaintProperty(fillId, 'fill-opacity', 0);
+      map.setPaintProperty(lineId, 'line-opacity', 0);
+    },
+  });
+
+  // A broad context wash — below the erosion strips and the marine outlines, so
+  // any more specific feature at the same spot still wins the card.
+  return { controller, queryLayers: [{ id: fillId, priority: 12 }], sourceId, bottomId: fillId };
 }
 
 function addPointLayer(map, layer, beforeId, { card, clearHover }) {

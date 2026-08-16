@@ -245,6 +245,28 @@ body.is-ready .maplibregl-map {
   color: var(--ink-muted);
 }
 
+/*
+ * A subheading INSIDE a group ("Storm overflows" within "At sea"). Deliberately
+ * quieter than the group label — no rule above it, a hairline down the left
+ * instead — so it reads as a subdivision of the group rather than a new one.
+ */
+.panel__subgroup {
+  margin: 14px 0 0;
+  padding-left: 10px;
+  border-left: 1px solid var(--hairline);
+}
+
+.panel__subsection-label {
+  margin: 0 0 9px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  opacity: 0.85;
+}
+
 /* ---- Layer toggle switch -------------------------------------------- */
 
 .toggle {
