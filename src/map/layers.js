@@ -38,8 +38,8 @@ const base = import.meta.env.BASE_URL;
  *
  * Flip to `true` to restore the Dorset land layers exactly as they were.
  *
- * The "At sea" group (marine protected areas, coastal erosion risk) is NOT
- * governed by this flag and is always shown.
+ * The "At sea" group and the "Water" group (rivers & waterways, now corridor-wide)
+ * are NOT governed by this flag and are always shown.
  */
 export const SHOW_DORSET_LAND_LAYERS = false;
 
@@ -49,11 +49,13 @@ const DORSET_LAND_LAYER_IDS = [
   'hona', // LNRS High Opportunity Nature Areas
   'reserves', // Dorset Wildlife Trust reserves
   'centres', // Dorset Wildlife Trust visitor centres
-  'water', // Rivers & waterways
   'alc', // Agricultural Land Classification
   'crome', // CROME field crops
   'species', // NBN Atlas notable species
 ];
+// NOT governed by the flag any more: `water`. Rivers & waterways were rebuilt for
+// the whole corridor (scripts/fetch-water.mjs), so they are no longer Dorset-only
+// data and no longer belong behind a flag that exists to hide Dorset-only data.
 
 const isHidden = (id) => !SHOW_DORSET_LAND_LAYERS && DORSET_LAND_LAYER_IDS.includes(id);
 
@@ -298,16 +300,29 @@ const allDataLayers = [
   {
     id: 'water',
     label: 'Rivers & waterways',
-    description: 'Rivers, streams and water bodies',
+    description: "Rivers and canals, Land's End to Beachy Head",
     group: 'Water',
     // Watercourse LINES (water.geojson) + EXACTLY TWO named water-body FILLS
     // (water-bodies-named.geojson: The Fleet + Poole Harbour). No broad water-body
     // category — see addWaterwaysLayer. Last in the array so it draws at the
     // bottom of the thematic stack.
+    //
+    // The lines now cover the whole corridor, rivers and canals only: the full
+    // OSM waterway set across five counties is ~68,000 ways and ~25 MB, of which
+    // 51,000 are streams that the renderer does not even draw until zoom 11.
+    // See scripts/fetch-water.mjs. The two named FILLS are still Dorset-only —
+    // they were hand-verified for the Dorset build and have no corridor-wide
+    // equivalent; widening them is a separate, curated job.
     kind: 'waterways',
     data: `${base}data/water.geojson`,
     bodiesData: `${base}data/water-bodies-named.geojson`,
     accentVar: 'water',
+    // THE ONE LAYER THAT STARTS ON. Every other layer here defaults off and is
+    // lazily fetched on first toggle; this one is the map's base context — the
+    // rivers that carry the catchments the storm overflow and water body layers
+    // are about — so it loads with the page. Being defaultVisible: true is also
+    // exactly what opts it out of deferLayer, so "starts on" and "fetches on page
+    // load" are the same switch rather than two that could disagree.
     defaultVisible: true,
     card: (p) => {
       const types = { river: 'River', stream: 'Stream', canal: 'Canal', ditch: 'Ditch', drain: 'Drain' };

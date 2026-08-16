@@ -50,10 +50,13 @@ box: a site is included if its water drains here, however far inland it sits (se
 Some of those sites are well north of the opening view — up the Hampshire Avon
 past Salisbury — so pan north to see them.
 
+**Rivers & waterways** — water-blue lines — every river and canal from Land's End
+to Beachy Head, from OpenStreetMap. **The one layer that starts switched ON**, so
+it loads with the page rather than on a toggle.
+
 **Dormant behind the feature flag** (Dorset-only data): SSSIs, High Opportunity
-Nature Areas, Dorset Wildlife Trust reserves & visitor centres, rivers &
-waterways, Agricultural Land Classification, field crops (CROME), and notable
-species (NBN Atlas).
+Nature Areas, Dorset Wildlife Trust reserves & visitor centres, Agricultural Land
+Classification, field crops (CROME), and notable species (NBN Atlas).
 
 Hovering any feature shows a small on-brand **info card** (name, type, area, a
 short note — and, for marine sites, a "More info ↗" link to its national record).
@@ -124,8 +127,11 @@ by a single flag near the top of `src/map/layers.js`:
 export const SHOW_DORSET_LAND_LAYERS = false;   // ← flip to true to bring them back
 ```
 
-It governs all eight of them — `sssi`, `hona`, `reserves`, `centres`, `water`,
-`alc`, `crome`, `species` (the `DORSET_LAND_LAYER_IDS` list beside the flag).
+It governs all seven of them — `sssi`, `hona`, `reserves`, `centres`, `alc`,
+`crome`, `species` (the `DORSET_LAND_LAYER_IDS` list beside the flag). **Rivers &
+waterways used to be an eighth** and no longer is: it was rebuilt for the whole
+corridor, so it is not Dorset-only data and does not belong behind a flag whose
+job is hiding Dorset-only data.
 
 - **`false` (default)** — none of these layers fetch on load, none render, and
   none of their toggles appear in the layer panel. Their data files are never
@@ -139,8 +145,8 @@ It governs all eight of them — `sssi`, `hona`, `reserves`, `centres`, `water`,
 data:sssi`, `data:hona`, …), paint rule and stylesheet stays in the codebase,
 dormant — so they can be re-enabled or widened to the other counties later.
 
-The **"At sea" group** (marine protected areas, coastal erosion risk) is *not*
-governed by the flag and is always shown.
+The **"At sea"** and **"Water"** groups are *not* governed by the flag and are
+always shown.
 
 ## Bounded to the project coastline
 
@@ -516,6 +522,47 @@ risk ramp; the committed `public/data/ncerm.geojson` stores `{ risk, dist }` onl
 - **Hover** — the risk band + the projected recession ("≈ N m, no future
   intervention"). Lowest hover priority — any specific site sits on top.
 
+### Rivers & waterways — the one layer that starts on
+
+`npm run data:water` (`scripts/fetch-water.mjs`) reads **OpenStreetMap via the
+Overpass API** and writes watercourse LINES for the whole corridor — the same
+west/north/south edges as `SOUTH_COAST_BBOX` and the same 0.245°E Beachy Head
+cutoff as every other layer.
+
+**Rivers and canals only, and that is a deliberate cut.** Counted straight from
+Overpass for the corridor:
+
+| class | ways | projected size |
+|---|---|---|
+| river | 4,208 | 8.4 MB |
+| canal | 265 | 0.1 MB |
+| **stream** | **51,002** | **13.8 MB** |
+| ditch | 7,124 | 1.3 MB |
+| drain | 5,338 | 1.1 MB |
+| **all five** | **67,937** | **≈24.7 MB** |
+
+Streams alone are three quarters of the feature count. Two things make dropping
+them the right call rather than a compromise: this is the one layer that
+**defaults on**, so its weight is paid by every visitor on first paint; and the
+renderer already gates streams to zoom 11 and ditches/drains to zoom 13, so none
+of that 16 MB is drawn at the view the map actually opens at.
+
+Shipped: **4,471 features (4,207 river, 264 canal), 3,625 named, 1.53 MB**
+(341 KB gzipped), simplified to 25% — which keeps the Tamar's meanders smooth at
+zoom 12 while taking the file from 4.07 MB. The renderer is untouched and still
+knows all five classes, so adding streams back later needs no code change:
+`WATER_ALL=1 npm run data:water` builds the full-detail version for comparison.
+
+Worth noting: the widened file is **34% SMALLER than the Dorset-only one it
+replaces** (2.30 MB → 1.53 MB). Coverage went from one county to five and the
+download went down, because dropping 6,619 Dorset streams more than paid for
+4,207 corridor rivers.
+
+The two named water-body FILLS (`water-bodies-named.geojson` — The Fleet and
+Poole Harbour) are **still Dorset-only**. They were hand-verified for the Dorset
+build and have no corridor-wide equivalent; widening them is a separate, curated
+job.
+
 ### The catchment boundary — what counts as "on this coast"
 
 `npm run data:catchment` (`scripts/build-catchment-boundary.mjs`) builds
@@ -888,7 +935,7 @@ scripts/fetch-sssi.mjs      page + clip + simplify the SSSI GeoJSON
 scripts/build-hona.mjs      read + reproject + clip + simplify HONA from the gpkg
 scripts/fetch-dwt.mjs       scrape directory + name-match OSM → reserve polygons & markers
 scripts/build-centres.mjs   curated, verified DWT visitor-centre markers
-scripts/fetch-water.mjs     Overpass → clip → watercourse LINES GeoJSON
+scripts/fetch-water.mjs     Overpass → corridor clip → river + canal LINES GeoJSON
 scripts/fetch-named-water.mjs  fetch + verify the two named water bodies (Fleet, Harbour)
 scripts/fetch-alc.mjs       page + clip + simplify the Provisional ALC grades
 scripts/fetch-alc-post1988.mjs  page + clip the detailed Post-1988 ALC (3a/3b)
