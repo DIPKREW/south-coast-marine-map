@@ -156,20 +156,42 @@ const SEABED_LABEL = {
   unknown: 'Unclassified',
 };
 
-// The curated marine flagship list. Every one was checked against NBN for this
-// corridor before it went in — see scripts/build-marine-species.mjs, which
-// reports live record and cell counts on every run.
+// The 18 marine flagship species, each CHECKED against NBN for this corridor
+// before inclusion — see scripts/build-marine-species.mjs, which reports live
+// record and cell counts on every run. `group` drives both the checklist's
+// subheadings and the colour family; `colorVar` is the palette token.
 const MARINE_SPECIES = [
-  { key: 'greyseal', common: 'Grey seal', sci: 'Halichoerus grypus' },
-  { key: 'commondolphin', common: 'Common dolphin', sci: 'Delphinus delphis' },
-  { key: 'porpoise', common: 'Harbour porpoise', sci: 'Phocoena phocoena' },
-  { key: 'bottlenose', common: 'Bottlenose dolphin', sci: 'Tursiops truncatus' },
-  { key: 'baskingshark', common: 'Basking shark', sci: 'Cetorhinus maximus' },
-  { key: 'bluefin', common: 'Atlantic bluefin tuna', sci: 'Thunnus thynnus' },
-  { key: 'seahorse', common: 'Spiny seahorse', sci: 'Hippocampus guttulatus' },
-  { key: 'cuttlefish', common: 'Common cuttlefish', sci: 'Sepia officinalis' },
+  { key: 'greyseal', common: 'Grey seal', sci: 'Halichoerus grypus', group: 'mammal', colorVar: 'sp-greyseal' },
+  { key: 'harbourseal', common: 'Harbour seal', sci: 'Phoca vitulina', group: 'mammal', colorVar: 'sp-harbourseal' },
+  { key: 'commondolphin', common: 'Common dolphin', sci: 'Delphinus delphis', group: 'mammal', colorVar: 'sp-commondolphin' },
+  { key: 'bottlenose', common: 'Bottlenose dolphin', sci: 'Tursiops truncatus', group: 'mammal', colorVar: 'sp-bottlenose' },
+  { key: 'porpoise', common: 'Harbour porpoise', sci: 'Phocoena phocoena', group: 'mammal', colorVar: 'sp-porpoise' },
+  { key: 'minkewhale', common: 'Minke whale', sci: 'Balaenoptera acutorostrata', group: 'mammal', colorVar: 'sp-minkewhale' },
+  { key: 'baskingshark', common: 'Basking shark', sci: 'Cetorhinus maximus', group: 'elasmo', colorVar: 'sp-baskingshark' },
+  { key: 'tope', common: 'Tope', sci: 'Galeorhinus galeus', group: 'elasmo', colorVar: 'sp-tope' },
+  { key: 'thornbackray', common: 'Thornback ray', sci: 'Raja clavata', group: 'elasmo', colorVar: 'sp-thornbackray' },
+  { key: 'undulateray', common: 'Undulate ray', sci: 'Raja undulata', group: 'elasmo', colorVar: 'sp-undulateray' },
+  { key: 'bluefin', common: 'Atlantic bluefin tuna', sci: 'Thunnus thynnus', group: 'fish', colorVar: 'sp-bluefin' },
+  { key: 'seahorse', common: 'Spiny seahorse', sci: 'Hippocampus guttulatus', group: 'fish', colorVar: 'sp-seahorse' },
+  { key: 'shortseahorse', common: 'Short-snouted seahorse', sci: 'Hippocampus hippocampus', group: 'fish', colorVar: 'sp-shortseahorse' },
+  { key: 'cuttlefish', common: 'Common cuttlefish', sci: 'Sepia officinalis', group: 'ceph', colorVar: 'sp-cuttlefish' },
+  { key: 'curledoctopus', common: 'Curled octopus', sci: 'Eledone cirrhosa', group: 'ceph', colorVar: 'sp-curledoctopus' },
+  { key: 'commonoctopus', common: 'Common octopus', sci: 'Octopus vulgaris', group: 'ceph', colorVar: 'sp-commonoctopus' },
+  { key: 'europeansquid', common: 'European squid', sci: 'Loligo vulgaris', group: 'ceph', colorVar: 'sp-europeansquid' },
+  { key: 'veinedsquid', common: 'Veined squid', sci: 'Loligo forbesii', group: 'ceph', colorVar: 'sp-veinedsquid' },
 ];
+
+// Subheadings for the checklist, in display order.
+const MARINE_SPECIES_GROUPS = [
+  { key: 'mammal', label: 'Marine mammals' },
+  { key: 'elasmo', label: 'Sharks & rays' },
+  { key: 'fish', label: 'Fish' },
+  { key: 'ceph', label: 'Cephalopods' },
+];
+
 const MARINE_SPECIES_BY_KEY = new Map(MARINE_SPECIES.map((s) => [s.key, s]));
+// map layer id (…-<key>-dot) → species, for the multi-species hover card.
+const MARINE_SPECIES_BY_LAYER = new Map(MARINE_SPECIES.map((s) => [`marine-species-${s.key}-dot`, s]));
 
 // The full registry — every layer, including the dormant Dorset land layers.
 // Consumers import the filtered `dataLayers` below, not this.
@@ -381,42 +403,47 @@ const allDataLayers = [
     label: 'Marine species',
     description: 'Recorded sightings — see About for data-gap caveat',
     group: 'At sea',
-    // The same grid renderer as the Dorset land species layer, on the same
-    // NBN facet data, in a different palette — one species at a time via the
-    // panel's selector. Default OFF, lazy-loaded.
-    kind: 'speciesgrid',
-    data: `${base}data/marine-species-grid.geojson`,
-    field: 'sp',
+    // A CHECKLIST of 18 species, each drawing one small dot per occupied grid
+    // square. Each species is a separate file fetched the first time it is
+    // ticked (see addMarineMarkersLayer), so ticking one costs one species, not
+    // eighteen. Markers are pre-placed in the SEA portion of their square at
+    // build time. Default OFF, and with every species unticked.
+    kind: 'marinemarkers',
+    speciesBase: `${base}data/marine-species/`,
     species: MARINE_SPECIES,
-    defaultSpecies: 'greyseal',
+    speciesGroups: MARINE_SPECIES_GROUPS,
     accentVar: 'marine-species',
     defaultVisible: false,
-    paint: {
-      color: palette['marine-species'],
-      colorStrong: palette['marine-species-strong'],
-      fillOpacity: 0.45,
-      fillOpacityHover: 0.78,
-    },
-    legend: [
-      { label: 'Recorded here (grid square)', colorVar: 'marine-species' },
-      { label: 'More records — slightly stronger', colorVar: 'marine-species-strong' },
-    ],
     about: {
       title: 'About marine species',
       body: [
-        "These are records of eight flagship marine species along this coast, drawn from the NBN Atlas. They're shown by grid square, not exact location — both because the data is recorded at coarse resolution and because sensitive species are deliberately blurred to protect them. A shaded square means the species has been recorded in that area, not that it's only there.",
-        'At sea that last point carries more weight than on land. Records cluster where people go: ferry routes, survey transects, dive sites, and the headlands watchers stand on. A blank square much more often means nobody was looking than that nothing was there.',
-        'The seals, dolphins, porpoise and tuna here are recorded almost entirely at 10 km resolution, so their squares are coarse by nature rather than by choice; basking shark and cuttlefish support a 2 km grid. The spiny seahorse is protected and its records are deliberately blurred — 9 squares from 32 records.',
+        'Records for 18 marine species along this coast, from the NBN Atlas. Tick a species to show it. Each dot is one grid square in which that species has been recorded, sized by how many records — not a sighting, and not the animal\u2019s location. Sensitive species are deliberately blurred by NBN, and most records here are only resolved to a 10 km square, so the dot marks an area, not a spot.',
+        'At sea the gaps matter more than on land. Records cluster where people go: ferry routes, survey transects, dive sites, and the headlands watchers stand on. A stretch of empty coast much more often means nobody was looking than that nothing was there \u2014 and a species with few records is not necessarily rarer than one with many, only less looked for.',
+        'The dot sits in the sea part of its square rather than the square\u2019s centre, because for a coastal square the centre is often inland. Where several ticked species share a square their dots are nudged a few pixels apart so none is hidden; they refer to the same square, not to different places.',
       ],
     },
-    card: (p) => {
-      const s = MARINE_SPECIES_BY_KEY.get(p.sp);
+    // One card for everything under the pointer, since the dots sit close by
+    // design. `hits` are one row per species.
+    collectCard: (hits) => {
+      const rows = hits
+        .map((h) => ({ sp: MARINE_SPECIES_BY_LAYER.get(h.layerId), p: h.props }))
+        .filter((r) => r.sp)
+        .sort((a, b) => (b.p.n ?? 0) - (a.p.n ?? 0));
+      if (!rows.length) return { title: 'Marine species' };
+      const res = rows[0].p.res ? `${rows[0].p.res / 1000} km square` : null;
+      const same = rows.every((r) => r.p.res === rows[0].p.res);
       return {
-        title: s ? `${s.common} (${s.sci})` : 'Marine species',
-        subtitle: 'recorded in this area · NBN Atlas',
-        meta: p.n != null ? `${plural(p.n, 'record')} · ${p.res / 1000} km square` : null,
+        title: rows.length === 1 ? `${rows[0].sp.common} (${rows[0].sp.sci})` : `${rows.length} species recorded here`,
+        subtitle: rows.length === 1 ? 'recorded in this area \u00b7 NBN Atlas' : 'recorded in this area \u00b7 NBN Atlas',
+        meta:
+          rows.length === 1
+            ? [plural(rows[0].p.n ?? 0, 'record'), res].filter(Boolean).join(' \u00b7 ')
+            : rows.map((r) => `${r.sp.common} \u2014 ${plural(r.p.n ?? 0, 'record')}${same ? '' : ` (${r.p.res / 1000} km)`}`).join('\n'),
+        note: rows.length === 1 ? null : same ? res : null,
       };
     },
+    // Fallback for the single-feature path; collectCard normally wins.
+    card: () => ({ title: 'Marine species', subtitle: 'recorded in this area \u00b7 NBN Atlas' }),
   },
   {
     id: 'marine',

@@ -29,8 +29,9 @@ counties.
 - **Seabed habitats** — a cool stone palette — what the sea floor is made of,
   from JNCC's UKSeaMap. A broad-scale **predictive** model, not survey. **Off by
   default.**
-- **Marine species** — a magenta grid — NBN Atlas records for eight flagship
-  marine species, by grid square, one species at a time. **Off by default.**
+- **Marine species** — NBN Atlas records for **18** marine species, as one dot
+  per occupied grid square, placed in the sea rather than at the grid centre.
+  Tick as many as you like from a grouped checklist. **Off by default.**
 - **Storm overflows** (a subgroup, two layers):
   - **Annual spill data** — a pale rose→deep wine ramp — how many times each of
     1,903 storm overflows discharged in 2025 and for how long, from the
@@ -732,36 +733,71 @@ internal edges between tens of thousands of same-class neighbours and takes
 are modelled, and drawing them would imply an edge precision the model does not
 have.
 
-### Marine species — the land species layer, pointed out to sea
+### Marine species — 18 species, ticked on, drawn in the sea
 
-`npm run data:marine-species` (`scripts/build-marine-species.mjs`). This is
-deliberately the *same machinery* as the Dorset land species grid: both import
+`npm run data:marine-species` (`scripts/build-marine-species.mjs`). It still
+shares its machinery with the Dorset land species grid — both import
 `scripts/lib/osgrid.mjs`, so the grid-reference parsing, the resolution-honesty
-rule and the NBN facet queries are one implementation. What changes is the
-species list and the area.
+rule and the NBN facet queries are one implementation — and it still stores **no
+individual record coordinates**. Two things differ.
 
-**No individual record coordinates are stored**, exactly as on land — the build
-facets on NBN's own pre-computed grid-reference fields, so the output is
-"recorded in this square, this many times" and nothing finer.
+**One file per species.** `public/data/marine-species/<key>.geojson`, so ticking
+one species fetches one species. The map layer adds that species' source the
+first time it is ticked and never removes it: unticking hides, re-ticking is
+instant, and nothing is fetched twice. That is the deferred-layer bargain applied
+one level down, which is why `marinemarkers` opts out of the generic
+`deferLayer` wrapper.
 
-Eight flagship species, **every one checked against NBN for this corridor before
-inclusion** (record counts and cell counts are reported on every run):
+**Markers are placed in the sea, not at the grid centre.** A square's geometric
+centre is a property of the grid, not of the water: for a coastal square it
+frequently falls inland, which would put a seal in a field. Every occupied square
+has the land subtracted and the marker placed in what remains. This is *not* an
+edge case — across the 2,317 occupied squares:
 
-| Species | Records | Grid | Cells |
-|---|---|---|---|
-| Grey seal | 11,921 | 10 km | 132 |
-| Common dolphin | 10,676 | 10 km | 133 |
-| Harbour porpoise | 9,651 | 10 km | 124 |
-| Basking shark | 7,446 | 2 km | 886 |
-| Bottlenose dolphin | 1,654 | 10 km | 107 |
-| Atlantic bluefin tuna | 1,575 | 10 km | 59 |
-| Common cuttlefish | 1,202 | 2 km | 438 |
-| Spiny seahorse | 32 | 10 km | 9 |
+| | |
+|---|---|
+| Squares overlapping land, corrected | **1,187 (51.2%)** |
+| …of those, breaking into **multiple** disconnected sea pieces | **425** — largest piece used |
+| …needing a guaranteed-interior point | **90** |
+| Squares with no sea at all | **16** — reported as anomalies, no marker drawn |
 
-The data-gap caveat is worded consistently with the land layer, plus the point
-that matters more at sea: records cluster on ferry routes, survey transects, dive
-sites and the headlands watchers stand on, so a blank square much more often
-means nobody was looking than that nothing was there.
+The third row is the one that isn't obvious: a polygon's *area centroid can fall
+outside its own polygon* when the shape is concave — a bay wrapped round a
+headland puts its centroid on the headland. So every centroid is tested against
+its own piece and against the coastline, and a scan-line interior point
+substituted where it fails. All 2,301 written markers verify as being in the sea.
+
+The 16 no-sea squares are records whose whole grid square is inland (10 km
+squares near Salisbury and Dorchester, 2 km squares just inland in Cornwall).
+They are reported rather than given a raw centre, because a marine record in a
+landlocked square is a data question, not a placement question.
+
+**Coastline source: ONS "Countries (December 2025) Boundaries UK BFC"** — BFC
+meaning *full resolution, clipped to the coastline*. OGL, no key, and it fits the
+ArcGIS fetch pattern the rest of this pipeline uses. Nothing in the repo could do
+the job: the only committed boundary is `scripts/dorset-lnrs-area.geojson`, which
+is Dorset-only, and the basemap's coastline is vector tiles resolved in the
+browser. **Natural Earth 10m was rejected**: at 1:10,000,000 it does not resolve
+Poole Harbour or the Fal, which is exactly where the correction has to work. At
+the ~11 m generalisation used here the ONS boundary gets Brownsea Island, Carrick
+Roads, Portland and the Fleet right; the one known miss is Weymouth's inner
+harbour channel, ~80 m wide, which closes up.
+
+**The checklist** replaces the old single-species dropdown: 18 species in the
+same collapsible disclosure the About text uses, grouped into marine mammals,
+sharks & rays, fish and cephalopods, each row carrying its own colour so the list
+doubles as the legend. Every species starts unticked, so an untouched list costs
+nothing. The panel toggle and the ticks are deliberately separate state —
+unticking every species must not switch the layer off, or the checklist would
+vanish with no way to tick anything again.
+
+**Where several ticked species share a square** their dots would draw exactly on
+top of each other, so each species layer carries a fixed `circle-translate` of a
+few pixels at a golden-angle bearing derived from its index. Deterministic (a
+species always shifts the same way), in screen space (so it neither grows nor
+distorts position with zoom), and small enough to read as a cluster rather than a
+moved point. Hovering answers with **one card listing every species under the
+pointer**, re-queried over a small box, rather than whichever dot happened to win.
 
 ### Collapsible panel
 
@@ -864,7 +900,7 @@ scripts/fetch-storm-overflows.mjs  EA EDM annual return (latest year) → spill 
 scripts/fetch-wfd-coastal.mjs      EA WFD Cycle 4 → coastal/estuarine water bodies + ecological & chemical class
 scripts/build-catchment-boundary.mjs  EA WFD catchments → the hydrological boundary (watersheds, not a bbox)
 scripts/fetch-seabed.mjs           EMODnet WFS → JNCC UKSeaMap → group by EUNIS → dissolve
-scripts/build-marine-species.mjs   NBN Atlas facet → OS-grid parse → marine species record grid
+scripts/build-marine-species.mjs   NBN Atlas facet → OS-grid parse → land-clip → one sea-placed marker file per species
 public/data/sssi.geojson    bundled SSSI polygons (committed)
 public/data/hona.geojson    bundled opportunity areas (committed)
 public/data/dwt-reserves.geojson  bundled DWT reserves from OSM (committed)
@@ -882,7 +918,7 @@ public/data/storm-overflow-names.json  id → site-name lookup, joined by the LI
 public/data/wfd-coastal.geojson  WFD coastal & transitional water bodies + classification (committed)
 public/data/catchment-boundary.geojson  the drainage boundary the storm overflow layers filter against
 public/data/seabed.geojson  seabed habitats, dissolved by EUNIS class (committed)
-public/data/marine-species-grid.geojson  marine species grid — cells only, no coordinates
+public/data/marine-species/<key>.geojson  one file per species — sea-placed markers, no record coordinates
 ```
 
 ## Adding a layer (built for growth)

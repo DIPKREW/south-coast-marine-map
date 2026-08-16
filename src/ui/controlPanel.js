@@ -80,6 +80,16 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
         sync();
       }
 
+      // Optional per-layer species CHECKLIST (many species at once). Shown only
+      // while the layer is on, like the legend and the About drop-down.
+      if (layer.species && controller.setChecked) {
+        const list = buildSpeciesChecklist(layer, controller);
+        into.appendChild(list.el);
+        const sync = () => list.setVisible(controller.isVisible());
+        syncers.push(sync);
+        sync();
+      }
+
       // Optional per-layer legend, shown only while that layer is on.
       if (layer.legend) {
         const legend = buildLegend(layer.legend);
@@ -306,6 +316,93 @@ function buildSelector(layer, controller) {
 }
 
 // A small colour-swatch legend, shown only while its layer is on.
+/**
+ * A multi-select species CHECKLIST, in the same collapsible disclosure the About
+ * text uses. Grouped by taxonomic category, every species unticked to start —
+ * ticking one is what fetches it, so an untouched list costs nothing.
+ */
+function buildSpeciesChecklist(layer, controller) {
+  const root = el('div', 'panel__about panel__checklist');
+
+  const headBtn = el('button', 'panel__about-head', { type: 'button', 'aria-expanded': 'false' });
+  headBtn.append(el('span', 'panel__about-caret', { 'aria-hidden': 'true' }));
+  const titleEl = el('span', 'panel__about-title');
+  titleEl.textContent = 'Choose species';
+  headBtn.appendChild(titleEl);
+  const countEl = el('span', 'panel__checklist-count');
+  headBtn.appendChild(countEl);
+
+  const bodyEl = el('div', 'panel__about-body');
+  const inner = el('div', 'panel__about-inner');
+
+  const groups = layer.speciesGroups?.length
+    ? layer.speciesGroups
+    : [{ key: null, label: null }];
+
+  for (const g of groups) {
+    const members = layer.species.filter((sp) => (g.key ? sp.group === g.key : true));
+    if (!members.length) continue;
+    if (g.label) {
+      const h = el('p', 'panel__checklist-group');
+      h.textContent = g.label;
+      inner.appendChild(h);
+    }
+    for (const sp of members) {
+      const id = `sp-${layer.id}-${sp.key}`;
+      const row = el('label', 'panel__checklist-row');
+      row.setAttribute('for', id);
+
+      const box = el('input', 'panel__checklist-box', { type: 'checkbox', id });
+      box.checked = controller.isChecked(sp.key);
+
+      const sw = el('span', 'panel__checklist-swatch', { 'aria-hidden': 'true' });
+      if (sp.colorVar) sw.style.background = `var(--${sp.colorVar})`;
+
+      const text = el('span', 'panel__checklist-text');
+      const common = el('span', 'panel__checklist-common');
+      common.textContent = sp.common;
+      const sci = el('span', 'panel__checklist-sci');
+      sci.textContent = sp.sci;
+      text.append(common, sci);
+
+      box.addEventListener('change', () => {
+        controller.setChecked(sp.key, box.checked);
+        renderCount();
+      });
+
+      row.append(box, sw, text);
+      inner.appendChild(row);
+    }
+  }
+
+  bodyEl.appendChild(inner);
+  root.append(headBtn, bodyEl);
+
+  const renderCount = () => {
+    const n = controller.checkedKeys().length;
+    countEl.textContent = n ? `${n} of ${layer.species.length}` : `none of ${layer.species.length}`;
+  };
+  renderCount();
+
+  // Starts CLOSED: 18 rows would otherwise push everything else off the panel
+  // the moment the layer is switched on.
+  let open = false;
+  const apply = () => {
+    root.classList.toggle('is-open', open);
+    headBtn.setAttribute('aria-expanded', String(open));
+  };
+  headBtn.addEventListener('click', () => {
+    open = !open;
+    apply();
+  });
+  apply();
+
+  return {
+    el: root,
+    setVisible: (v) => root.classList.toggle('is-active', v),
+  };
+}
+
 function buildLegend(items) {
   const root = el('div', 'panel__legend');
   for (const it of items) {

@@ -41,17 +41,24 @@ export function applyDataLayers(map, layers) {
   const registry = []; // { layer, queryId, sourceId, sourceLayer, priority } per hit-test layer
   let beforeId; // insertion anchor — keeps earlier layers on top
 
-  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, wfd: addWfdLayer, seabed: addSeabedLayer };
+  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, wfd: addWfdLayer, seabed: addSeabedLayer, marinemarkers: addMarineMarkersLayer };
   for (const layer of layers) {
     const add = adders[layer.kind] || addPolygonLayer;
     // A layer that starts hidden is DEFERRED: neither its source nor its layers
     // exist until the toggle is first switched on, so its data is never fetched
-    // for someone who never asks to see it. (croptiles does its own deferred
-    // fetch already — it needs the archive in hand before it can add a source.)
-    const defer = layer.defaultVisible === false && layer.kind !== 'croptiles';
-    const entry = defer
-      ? deferLayer(map, layer, beforeId, { card, clearHover }, add)
-      : add(map, layer, beforeId, { card, clearHover });
+    // for someone who never asks to see it. Two kinds opt out because they do
+    // their own, finer-grained deferral: croptiles must have its PMTiles archive
+    // in hand before it can add a source at all, and marinemarkers defers per
+    // SPECIES rather than per layer.
+    const SELF_DEFERRING = new Set(['croptiles', 'marinemarkers']);
+    const defer = layer.defaultVisible === false && !SELF_DEFERRING.has(layer.kind);
+    // A renderer that adds map layers over time (the marine species markers add
+    // one source per species, the first time that species is ticked) registers
+    // each new hit-test layer through this rather than up front.
+    const addQueryLayer = (q) =>
+      registry.push({ layer, queryId: q.id, sourceId: q.source, sourceLayer: q.sourceLayer, priority: q.priority ?? 0 });
+    const ctx = { card, clearHover, addQueryLayer };
+    const entry = defer ? deferLayer(map, layer, beforeId, ctx, add) : add(map, layer, beforeId, ctx);
     controllers.set(layer.id, entry.controller);
     // A layer may expose several hit-test layers (polygons, markers, water lines…),
     // each with a hover priority so the most specific feature wins regardless of
@@ -760,6 +767,135 @@ function addWfdLayer(map, layer, beforeId, { card, clearHover }) {
   return { controller, queryLayers: [{ id: fillId, priority: 12 }], sourceId, bottomId: fillId };
 }
 
+/**
+ * MARINE SPECIES MARKERS — one small dot per occupied grid square per species,
+ * many species drawable at once.
+ *
+ * Unlike every other layer here this one owns N sources, not one: each species
+ * has its own file and its own map layer, added the FIRST TIME that species is
+ * ticked and never removed. Unticking only hides it, so re-ticking is instant
+ * and nothing is fetched twice. That is the same bargain deferLayer strikes for
+ * whole layers, applied one level down.
+ *
+ * The markers are POINTS, already placed in the sea portion of their grid square
+ * at build time (see scripts/build-marine-species.mjs) — the map does no
+ * geometry, it just draws what it is given.
+ *
+ * Two species recorded in the same square would otherwise draw one dot exactly
+ * on top of another. Each species layer therefore carries a fixed
+ * `circle-translate` — a few pixels, at an angle derived from its index in the
+ * list. It is deterministic (the same species always shifts the same way), it is
+ * in SCREEN space so it neither grows nor distorts position as you zoom, and at
+ * this size it reads as a small cluster rather than a moved point.
+ */
+function addMarineMarkersLayer(map, layer, beforeId, { card, clearHover, addQueryLayer }) {
+  const species = layer.species ?? [];
+  const built = new Map(); // key → { sourceId, layerId }
+  const checked = new Set();
+  const pending = new Map(); // key → in-flight fetch, so a double-click can't double-fetch
+
+  const OFFSET_PX = 3.6;
+  const offsetFor = (i) => {
+    // Golden-angle spread so neighbouring species in the list don't land on the
+    // same bearing, and the whole set stays evenly distributed round the point.
+    const a = (i * 137.508 * Math.PI) / 180;
+    return [
+      Math.round(Math.cos(a) * OFFSET_PX * 100) / 100,
+      Math.round(Math.sin(a) * OFFSET_PX * 100) / 100,
+    ];
+  };
+
+  // Radius grows with the log of the record count in that square — a square with
+  // 400 records should read as busier than one with 4, without swamping the map.
+  const radius = ['interpolate', ['linear'], ['log10', ['max', ['get', 'n'], 1]], 0, 2.6, 1, 3.6, 2, 4.8, 3.5, 6.4];
+  const hb = ['boolean', ['feature-state', 'hover'], false];
+
+  const ensure = async (sp, index) => {
+    if (built.has(sp.key)) return built.get(sp.key);
+    if (pending.has(sp.key)) return pending.get(sp.key);
+    const job = (async () => {
+      const sourceId = `${layer.id}-${sp.key}-source`;
+      const dotId = `${layer.id}-${sp.key}-dot`;
+      const res = await fetch(`${layer.speciesBase}${sp.key}.geojson`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      map.addSource(sourceId, { type: 'geojson', data, generateId: true });
+      map.addLayer(
+        {
+          id: dotId, type: 'circle', source: sourceId,
+          layout: { visibility: 'visible' },
+          paint: {
+            'circle-color': palette[sp.colorVar] ?? palette['marine-species'],
+            'circle-radius': ['*', radius, ['case', hb, 1.45, 1]],
+            'circle-stroke-color': palette.surface,
+            'circle-stroke-width': hoverExpr(1.4, 0.7),
+            'circle-translate': offsetFor(index),
+            'circle-opacity': 0.95,
+            'circle-stroke-opacity': 0.9,
+            'circle-radius-transition': { duration: 150 },
+            'circle-opacity-transition': { duration: FADE_MS },
+            'circle-stroke-opacity-transition': { duration: FADE_MS },
+          },
+        },
+        beforeId,
+      );
+      const rec = { sourceId, dotId, count: data.features?.length ?? 0 };
+      built.set(sp.key, rec);
+      // Only now can the hover resolver safely query it.
+      addQueryLayer({ id: dotId, source: sourceId, priority: 62 });
+      pending.delete(sp.key);
+      return rec;
+    })().catch((err) => {
+      pending.delete(sp.key);
+      console.warn(`[${layer.id}] "${sp.common}" unavailable:`, err);
+      throw err;
+    });
+    pending.set(sp.key, job);
+    return job;
+  };
+
+  // `master` is the panel's own toggle; `checked` is the checklist. A species
+  // draws only when both are on. They are deliberately separate: unticking every
+  // species must NOT switch the layer off, or the checklist would vanish and
+  // leave no way to tick anything again. Turning the layer off keeps the ticks,
+  // so turning it back on restores exactly what was showing.
+  let master = false;
+
+  const applyVisibility = () => {
+    for (const [key, rec] of built) {
+      map.setLayoutProperty(rec.dotId, 'visibility', master && checked.has(key) ? 'visible' : 'none');
+    }
+  };
+
+  const setChecked = async (key, on) => {
+    const i = species.findIndex((s) => s.key === key);
+    if (i < 0) return;
+    if (on) checked.add(key);
+    else checked.delete(key);
+    if (on && !built.has(key)) {
+      // First tick for this species — this is the only time it is fetched.
+      try { await ensure(species[i], i); } catch { checked.delete(key); }
+    }
+    if (!on) { clearHover(built.get(key)?.sourceId); card.hide(); }
+    applyVisibility();
+  };
+
+  const controller = {
+    isVisible: () => master,
+    show: () => { master = true; applyVisibility(); },
+    hide: () => { master = false; applyVisibility(); clearHover(); card.hide(); },
+    toggle: () => (master ? controller.hide() : controller.show()),
+    // The panel's checklist drives these.
+    isChecked: (key) => checked.has(key),
+    setChecked,
+    checkedKeys: () => [...checked],
+    loadedCount: (key) => built.get(key)?.count ?? null,
+  };
+
+  // No hit-test layers up front — each species registers its own on arrival.
+  return { controller, queryLayers: [], sourceId: `${layer.id}-source`, bottomId: beforeId };
+}
+
 // SEABED HABITATS (JNCC UKSeaMap). A continuous wash over the whole sea floor,
 // coloured by substrate group. Deliberately NO outline: the source is a modelled
 // surface with tens of thousands of boundaries between neighbouring classes, and
@@ -1218,6 +1354,33 @@ function setupHover(map, card, registry, controllers, hover, clearHover) {
       hover.current = { source: entry.sourceId, sourceLayer: entry.sourceLayer, id: f.id };
       // OMT coast features have no stable id — skip feature-state (no emphasis), just card.
       if (f.id != null) map.setFeatureState(featureRef(hover.current), { hover: true });
+    }
+
+    // A layer whose dots deliberately sit close together (the marine species
+    // markers, one per species per square) answers with ONE card listing
+    // everything under the pointer, rather than whichever dot happened to win.
+    // Re-queried over a small box, because "near" is the point — a dot nudged a
+    // few pixels off is still the same square.
+    if (entry.layer.collectCard) {
+      const ids = new Set(active.filter((r) => r.layer === entry.layer).map((r) => r.queryId));
+      const R = 9;
+      const box = [
+        [e.point.x - R, e.point.y - R],
+        [e.point.x + R, e.point.y + R],
+      ];
+      const near = map.queryRenderedFeatures(box, { layers: [...ids] });
+      const seen = new Set();
+      const hits = [];
+      for (const nf of near) {
+        // One row per SPECIES, keyed on its map layer, not per dot.
+        if (seen.has(nf.layer.id)) continue;
+        seen.add(nf.layer.id);
+        hits.push({ layerId: nf.layer.id, props: nf.properties || {} });
+      }
+      if (hits.length) {
+        card.show(entry.layer.collectCard(hits), e.point, accentFor(entry.layer));
+        return;
+      }
     }
 
     card.show(entry.layer.card(f.properties || {}), e.point, accentFor(entry.layer));

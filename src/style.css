@@ -431,6 +431,84 @@ body.is-ready .maplibregl-map {
   margin-top: 11px;
 }
 
+/* ---- Species checklist (many species at once) ------------------------ */
+
+/*
+ * Reuses the About disclosure's shell (.panel__about) for the open/close
+ * mechanism, so there is one expand/collapse behaviour on this panel, not two.
+ * Only the contents differ.
+ */
+.panel__checklist-count {
+  margin-left: auto;
+  padding-left: 8px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  opacity: 0.8;
+}
+
+.panel__checklist-group {
+  margin: 12px 0 5px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  opacity: 0.75;
+}
+.panel__checklist-group:first-child {
+  margin-top: 10px;
+}
+
+.panel__checklist-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+
+.panel__checklist-box {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* The species' own colour, so the list doubles as the legend. */
+.panel__checklist-swatch {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--surface);
+}
+
+.panel__checklist-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+.panel__checklist-common {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.panel__checklist-sci {
+  font-size: 10px;
+  font-style: italic;
+  color: var(--ink-muted);
+  opacity: 0.85;
+}
+
 /* ---- Per-layer species selector (shown only while its layer is on) -- */
 
 .panel__selector {

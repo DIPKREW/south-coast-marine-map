@@ -113,8 +113,40 @@ export const palette = {
   // slates — at a glance the cells just read as darker seabed. Against grey-
   // lilac it now reads unmistakably as a separate layer, and it stays clear of
   // the spill ramp's darker wine reds.
-  'marine-species': '#B23A82', // grid fill
-  'marine-species-strong': '#7E2459', // denser cells / hover / outline
+  'marine-species': '#B23A82', // legacy single-species tint (kept for the toggle accent)
+  'marine-species-strong': '#7E2459',
+  /*
+   * MARINE SPECIES MARKERS — 18 species, one dot each.
+   *
+   * PROPOSED, FLAGGED FOR REVIEW. Four families, one per taxonomic group, so a
+   * reader can tell a whale from a squid at a glance without memorising 18
+   * colours; within a family the shades run dark→light, so species stay
+   * separable when several are ticked at once. These are small saturated dots
+   * drawn ON TOP of the muted seabed and water washes, which is why they are
+   * allowed to be brighter than anything else on this map.
+   */
+  // Marine mammals — indigo/blue
+  'sp-greyseal': '#2E3C93',
+  'sp-harbourseal': '#4356B4',
+  'sp-commondolphin': '#5C71CE',
+  'sp-bottlenose': '#7A8CDE',
+  'sp-porpoise': '#96A6EA',
+  'sp-minkewhale': '#B2BFF5',
+  // Sharks & rays — plum/magenta
+  'sp-baskingshark': '#7A1F5C',
+  'sp-tope': '#9C3378',
+  'sp-thornbackray': '#BC4E94',
+  'sp-undulateray': '#D477B2',
+  // Fish — amber/gold
+  'sp-bluefin': '#9E6413',
+  'sp-seahorse': '#C68A22',
+  'sp-shortseahorse': '#E0AE4E',
+  // Cephalopods — coral/red-orange
+  'sp-cuttlefish': '#9B3020',
+  'sp-curledoctopus': '#B94933',
+  'sp-commonoctopus': '#D06849',
+  'sp-europeansquid': '#E08A6C',
+  'sp-veinedsquid': '#EDAC94',
 };
 
 export const fonts = {
