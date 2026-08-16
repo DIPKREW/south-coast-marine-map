@@ -113,6 +113,19 @@ export const palette = {
   // slates — at a glance the cells just read as darker seabed. Against grey-
   // lilac it now reads unmistakably as a separate layer, and it stays clear of
   // the spill ramp's darker wine reds.
+  /*
+   * RECREATIONAL PRESSURE (MMO vessel density) — a pale mauve → deep magenta-
+   * purple ramp. PROPOSED, FLAGGED FOR REVIEW: this is the most crowded corner
+   * of the palette. It is clear of the erosion ambers, the spill crimsons, the
+   * WFD greens and the marine teal, but it shares a broad family with the seabed
+   * slates (far greyer, much less saturated) and with the sharks-and-rays species
+   * dots (small point markers rather than a wash). Worth a look with both on.
+   */
+  'rec-0': '#EFE4EC', // < 0.5 transits/week — barely present
+  'rec-1': '#DCB6D6', // 0.5–1
+  'rec-2': '#C583C4', // 1–5
+  'rec-3': '#A44BA6', // 5–20
+  'rec-4': '#6E1C74', // 20+ — the busy water
   'marine-species': '#B23A82', // legacy single-species tint (kept for the toggle accent)
   'marine-species-strong': '#7E2459',
   /*

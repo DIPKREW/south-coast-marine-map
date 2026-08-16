@@ -141,6 +141,23 @@ const WFD_ECO_NOTE = {
 // on the same WFD id carried in the data, so the link is exact, not a search.
 const CDE = 'https://environment.data.gov.uk/catchment-planning/WaterBody/';
 
+// ---- Recreational pressure helpers ----
+
+// Density bands, from the real corridor distribution (median 0.83, max 807):
+// 3,437 / 2,104 / 3,750 / 822 / 267 cells respectively.
+const REC_BREAKS = [0.5, 1, 5, 20];
+const REC_BAND_LABELS = [
+  'Under 0.5 a week',
+  '0.5 – 1 a week',
+  '1 – 5 a week',
+  '5 – 20 a week',
+  '20+ a week',
+];
+
+// The source's own wording for the field, so the card cannot drift from it.
+const REC_UNIT = 'recreational transits per week';
+const REC_YEAR = 2015;
+
 // ---- Seabed + marine species helpers ----
 
 // Seabed substrate groups → the label shown on the card and in the legend. The
@@ -576,6 +593,50 @@ const allDataLayers = [
     }),
   },
   {
+    id: 'recreational',
+    label: 'Recreational pressure',
+    description: 'Recreational vessel density, 2015',
+    group: 'At sea',
+    // MMO's 2 km vessel density grid, recreational ship-type group only.
+    // A broad wash just above the seabed and below everything specific.
+    // Default OFF, lazy-loaded.
+    kind: 'density',
+    data: `${base}data/recreational-pressure.geojson`,
+    field: 'rec',
+    accentVar: 'rec-3',
+    defaultVisible: false,
+    paint: {
+      colors: {
+        0: palette['rec-0'], 1: palette['rec-1'], 2: palette['rec-2'],
+        3: palette['rec-3'], 4: palette['rec-4'],
+      },
+      breaks: REC_BREAKS,
+      fillOpacity: 0.6,
+      fillOpacityHover: 0.8,
+    },
+    legend: REC_BAND_LABELS.map((label, i) => ({ label, colorVar: `rec-${i}` })),
+    about: {
+      title: 'About recreational pressure',
+      body: [
+        'Where recreational boats were tracked, on the Marine Management Organisation\u2019s 2 km vessel density grid. Each square shows the average number of recreational vessel transits a week.',
+        'THE DATA IS FROM 2015. AIS was sampled for the first seven days of each month through that year and the twelve sample weeks averaged. It is a decade old, it is the most recent MMO grid that is still actually downloadable, and boating patterns will have moved since \u2014 read it as where the pressure was, not where it is.',
+        'It also only counts boats carrying AIS transponders, and most small recreational craft do not. Dinghies, kayaks, paddleboards, angling boats and a great many small motor and sailing boats are simply absent. That is not a footnote: on a coast like this one the untracked fleet is probably larger than the tracked one, so quiet water on this map can still be busy water, and the pattern is better read as a guide to where the larger, better-equipped boats concentrate.',
+      ],
+    },
+    card: (p) => {
+      const share =
+        p.all != null && p.all > 0 && p.rec != null
+          ? `${Math.round((p.rec / p.all) * 100)}% of all vessel traffic here`
+          : null;
+      return {
+        title: `${p.rec} ${REC_UNIT}`,
+        subtitle: `Average week, ${REC_YEAR} \u00b7 2 km grid square`,
+        meta: share,
+        note: 'MMO vessel density grid \u00b7 AIS-tracked vessels only',
+      };
+    },
+  },
+  {
     id: 'seabed',
     label: 'Seabed habitats',
     description: 'What the sea floor is made of — modelled',
@@ -763,7 +824,7 @@ const allPanelGroups = [
   // own assessment of the water, not a record of what was discharged into it.
   {
     label: 'At sea',
-    layerIds: ['marine', 'ncerm', 'wfd', 'seabed', 'marine-species'],
+    layerIds: ['marine', 'ncerm', 'wfd', 'recreational', 'seabed', 'marine-species'],
     subgroups: [{ label: 'Storm overflows', layerIds: ['storm-annual', 'storm-live'] }],
   },
   { label: 'Water', layerIds: ['water'] },

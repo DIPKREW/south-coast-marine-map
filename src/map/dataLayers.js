@@ -41,7 +41,7 @@ export function applyDataLayers(map, layers) {
   const registry = []; // { layer, queryId, sourceId, sourceLayer, priority } per hit-test layer
   let beforeId; // insertion anchor — keeps earlier layers on top
 
-  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, wfd: addWfdLayer, seabed: addSeabedLayer, marinemarkers: addMarineMarkersLayer };
+  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, wfd: addWfdLayer, seabed: addSeabedLayer, marinemarkers: addMarineMarkersLayer, density: addDensityLayer };
   for (const layer of layers) {
     const add = adders[layer.kind] || addPolygonLayer;
     // A layer that starts hidden is DEFERRED: neither its source nor its layers
@@ -955,6 +955,47 @@ function addMarineMarkersLayer(map, layer, beforeId, { card, clearHover, addQuer
 
   // No hit-test layers up front — each species registers its own on arrival.
   return { controller, queryLayers: [], sourceId: `${layer.id}-source`, bottomId: beforeId };
+}
+
+// RECREATIONAL PRESSURE (MMO vessel density grid). A 2 km grid of squares
+// shaded by how many recreational vessel transits a week the AIS sampling saw
+// there. Banded, not continuous: transits per week is long-tailed (median 0.58,
+// max 807), so a linear ramp would leave almost every cell the palest colour.
+// No outline — at 2 km the grid is dense enough that cell edges would read as a
+// mesh laid over the sea rather than as data.
+function addDensityLayer(map, layer, beforeId, { card, clearHover }) {
+  const sourceId = `${layer.id}-source`;
+  const fillId = `${layer.id}-fill`;
+  const c = layer.paint.colors;
+  const breaks = layer.paint.breaks;
+  const startVisible = layer.defaultVisible !== false;
+  const fillOpacityExpr = hoverExpr(layer.paint.fillOpacityHover, layer.paint.fillOpacity);
+
+  map.addSource(sourceId, { type: 'geojson', data: layer.data, generateId: true });
+
+  const colorExpr = ['step', ['get', layer.field], c[0], ...breaks.flatMap((b, i) => [b, c[i + 1]])];
+
+  map.addLayer(
+    {
+      id: fillId, type: 'fill', source: sourceId,
+      layout: { visibility: startVisible ? 'visible' : 'none' },
+      paint: {
+        'fill-color': colorExpr,
+        'fill-opacity': startVisible ? fillOpacityExpr : 0,
+        'fill-opacity-transition': { duration: FADE_MS }, 'fill-antialias': false,
+      },
+    },
+    beforeId,
+  );
+
+  const controller = makeController(map, {
+    layerIds: [fillId], sourceId, startVisible, card, clearHover,
+    onShow: () => map.setPaintProperty(fillId, 'fill-opacity', fillOpacityExpr),
+    onHide: () => map.setPaintProperty(fillId, 'fill-opacity', 0),
+  });
+
+  // A broad context wash — above the seabed it sits on, below everything specific.
+  return { controller, queryLayers: [{ id: fillId, priority: 10 }], sourceId, bottomId: fillId };
 }
 
 // SEABED HABITATS (JNCC UKSeaMap). A continuous wash over the whole sea floor,

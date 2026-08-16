@@ -32,6 +32,9 @@ counties.
 - **Marine species** — NBN Atlas records for **18** marine species, as one dot
   per occupied grid square, placed in the sea rather than at the grid centre.
   Tick as many as you like from a grouped checklist. **Off by default.**
+- **Recreational pressure** — a mauve→magenta ramp — recreational vessel density
+  from the MMO's 2 km AIS grid. **The data is from 2015** and counts only
+  AIS-carrying boats. **Off by default.**
 - **Storm overflows** (a subgroup, two layers):
   - **Annual spill data** — a pale rose→deep wine ramp — how many times each of
     1,903 storm overflows discharged in 2025 and for how long, from the
@@ -100,6 +103,7 @@ npm run data:storm-overflows # rebuild the EA EDM storm overflow annual return (
 npm run data:wfd         # rebuild WFD coastal & transitional water body classifications
 npm run data:seabed      # rebuild seabed habitats (JNCC UKSeaMap via EMODnet WFS)
 npm run data:marine-species # rebuild the marine species grid from the NBN Atlas
+npm run data:recreational # rebuild recreational vessel density (MMO 2 km AIS grid, 2015)
 ```
 
 ## How it looks the way it does
@@ -780,6 +784,44 @@ internal edges between tens of thousands of same-class neighbours and takes
 are modelled, and drawing them would imply an edge precision the model does not
 have.
 
+### Recreational pressure — a decade-old picture of a partly-tracked fleet
+
+`npm run data:recreational` (`scripts/fetch-vessel-density.mjs`) reads the MMO's
+2 km vessel density grid from **MMO's own ArcGIS org**, filtered to the
+recreational ship-type group. OGL, no key. **10,380 cells in the corridor,
+2.0 MB.**
+
+**Field `avg_stg_10`, unit "weekly average number of transits of Recreational
+vessels"** — ship type group 10, per the source's own attribute documentation.
+Transits per week, not vessel-hours and not a count of boats. `avg_total_` (all
+vessels) is carried alongside purely so the hover card can say what share of a
+cell's traffic was recreational; it is never what the layer colours.
+
+**Sampling year: 2015.** Finding the newest usable grid took some doing, and the
+dead ends are worth recording:
+
+| Candidate | Why not |
+|---|---|
+| MMO1066 2011/2012 | The usual source, but the oldest |
+| MMO Vessel Density Grid **2013 / 2014 / 2015** on data.gov.uk | All three download links are **dead** (S3 objects 404) |
+| "MMO Vessel Desnity 2019" on ArcGIS | Third-party re-host; carries only `Yearly_Avg_STG_Total` with **no ship-type breakdown**, so no recreational figure — and its extent is a patch around the Solent, not the UK |
+| EMODnet Human Activities route density, 2017+ | **WMS raster only** (`routedensity_*`); no vector grid to query, no recreational attribute to filter |
+| AIS2015/2016/2017 "Recreational Vessels" | ArcGIS **tile caches** — pictures, not data |
+
+So 2015 is used: three to four years newer than the MMO1066 grid usually cited,
+and the newest that is both retrievable and carries the recreational breakdown.
+
+**One trap worth knowing:** the service stores its grid in EPSG:3035, so ArcGIS
+reprojects a lon/lat query envelope into that CRS as an axis-aligned box, which
+over-covers the corridor by roughly half a degree on every side. Taken at face
+value that painted vessel density up the Bristol Channel, across to Cherbourg and
+past London — 5,408 cells, 34% of the result. The corridor is therefore enforced
+in the build on the **cell centre**, the same rule the marine species grid uses.
+
+Bands come from the real distribution (median 0.83, max 807 transits/week), not
+round numbers: `< 0.5 · 0.5–1 · 1–5 · 5–20 · 20+` holding 3,437 / 2,104 / 3,750 /
+822 / 267 cells.
+
 ### Marine species — 18 species, ticked on, drawn in the sea
 
 `npm run data:marine-species` (`scripts/build-marine-species.mjs`). It still
@@ -947,6 +989,7 @@ scripts/fetch-storm-overflows.mjs  EA EDM annual return (latest year) → spill 
 scripts/fetch-wfd-coastal.mjs      EA WFD Cycle 4 → coastal/estuarine water bodies + ecological & chemical class
 scripts/build-catchment-boundary.mjs  EA WFD catchments → the hydrological boundary (watersheds, not a bbox)
 scripts/fetch-seabed.mjs           EMODnet WFS → JNCC UKSeaMap → group by EUNIS → dissolve
+scripts/fetch-vessel-density.mjs   MMO 2 km AIS grid → recreational ship-type group only
 scripts/build-marine-species.mjs   NBN Atlas facet → OS-grid parse → land-clip → one sea-placed marker file per species
 public/data/sssi.geojson    bundled SSSI polygons (committed)
 public/data/hona.geojson    bundled opportunity areas (committed)
@@ -965,6 +1008,7 @@ public/data/storm-overflow-names.json  id → site-name lookup, joined by the LI
 public/data/wfd-coastal.geojson  WFD coastal & transitional water bodies + classification (committed)
 public/data/catchment-boundary.geojson  the drainage boundary the storm overflow layers filter against
 public/data/seabed.geojson  seabed habitats, dissolved by EUNIS class (committed)
+public/data/recreational-pressure.geojson  MMO recreational vessel density, 2015 (committed)
 public/data/marine-species/<key>.geojson  one file per species — sea-placed markers, no record coordinates
 ```
 

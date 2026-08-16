@@ -72,6 +72,7 @@ const ATTRIBUTION = [
   // NBN is credited unconditionally: the MARINE species layer uses it and is not
   // governed by SHOW_DORSET_LAND_LAYERS, unlike the land species grid.
   'Species records: <a href="https://nbnatlas.org" target="_blank" rel="noopener">NBN Atlas</a> contributors',
+  'Vessel density (2015 AIS) © <a href="https://www.gov.uk/government/organisations/marine-management-organisation" target="_blank" rel="noopener">MMO</a> &amp; MCA, OGL — © British Crown copyright',
 ].join(' · ');
 
 export function createMap(container) {
