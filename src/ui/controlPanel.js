@@ -139,14 +139,7 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
     apply();
   };
 
-  // Fired only when the person works the chevron themselves — never for a
-  // programmatic collapse. main.js uses it to stop auto-collapsing once they've
-  // taken manual control of the panel.
-  const userToggleListeners = [];
-  collapseBtn.addEventListener('click', () => {
-    setCollapsed(!collapsed);
-    for (const fn of userToggleListeners) fn(collapsed);
-  });
+  collapseBtn.addEventListener('click', () => setCollapsed(!collapsed));
   apply();
 
   return {
@@ -154,7 +147,6 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
     collapse: () => setCollapsed(true),
     expand: () => setCollapsed(false),
     isCollapsed: () => collapsed,
-    onUserToggle: (fn) => userToggleListeners.push(fn),
   };
 }
 

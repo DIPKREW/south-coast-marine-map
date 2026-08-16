@@ -474,10 +474,11 @@ survive a collapse/expand round trip with no bookkeeping.
   chevron — can reach these handlers, and programmatic camera moves (the opening
   `fitBounds`) never fire them either, because they are DOM input events rather
   than map events. The attribution control is excluded as map furniture.
-- **It fires at most once**, and never once the person has worked the chevron
-  themselves (`panel.onUserToggle` disarms it). Re-collapsing on every later
-  interaction would slam the panel shut each time they reopened it to change a
-  layer; after they've expressed a preference the panel stays where they put it.
+- **It fires every time the panel is open.** There is no arming flag — the
+  panel's own state is the arming: `autoCollapse` returns early when
+  `panel.isCollapsed()`, so the handlers are live whenever the panel is expanded
+  and a no-op whenever it isn't. Reopening it with the chevron — after an
+  auto-collapse or a manual one — re-arms the behaviour, indefinitely.
 - **Height** — the panel is capped at `min(90vh, 100vh - 2 × --panel-gap)`. The
   masthead and chevron stay put and `.panel__body` scrolls internally, with
   `overscroll-behavior: contain` so an over-scroll doesn't chain through to the

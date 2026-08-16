@@ -39,7 +39,7 @@ map.on('error', (e) => {
 });
 
 /**
- * Get the panel out of the way the first time the person actually uses the map.
+ * Get the panel out of the way whenever the person actually uses the map.
  *
  * Listens on the MAP CONTAINER, not the window: the panel is a sibling of #map,
  * so nothing inside it (layer toggles, About carets, the collapse chevron) can
@@ -51,26 +51,18 @@ map.on('error', (e) => {
  *   • click       — covers the +/- buttons activated from the keyboard, which
  *     never emit pointerdown.
  *
- * It fires AT MOST ONCE, and never after the person has worked the chevron
- * themselves. Re-collapsing on every later interaction would fight them the
- * moment they reopen the panel to change a layer, so once they've expressed a
- * preference — by reopening it, or by collapsing it by hand — the panel stays
- * where they put it.
+ * There is no arming flag: the panel's own state is the arming. Expanded means
+ * the next map interaction collapses it; collapsed means these handlers are a
+ * no-op. Reopening it — by chevron, after an auto-collapse or a manual one —
+ * therefore re-arms the behaviour every time, indefinitely.
  */
 function wireAutoCollapse(map, panel) {
   const container = map.getContainer();
-  let armed = true;
-
-  // Manual use of the chevron hands control to the person for good.
-  panel.onUserToggle(() => {
-    armed = false;
-  });
 
   const autoCollapse = (event) => {
-    if (!armed) return;
+    if (panel.isCollapsed()) return;
     // The attribution control is map furniture, not the map itself.
     if (event.target instanceof Element && event.target.closest('.maplibregl-ctrl-attrib')) return;
-    armed = false;
     panel.collapse();
   };
 
