@@ -1,0 +1,601 @@
+/* =========================================================================
+   Dorset Nature Map — editorial styling.
+   Palette + type come from CSS custom properties injected by tokens.js;
+   the var() fallbacks below mirror them so the page is correct before JS runs.
+   ========================================================================= */
+
+:root {
+  --paper: #f3eee4;
+  --surface: #fbf8f1;
+  --ink: #1a1915;
+  --ink-muted: #6f6b60;
+  --accent: #cc6b49;
+  --accent-strong: #b85636;
+  --accent-2: #7c8a6b;
+  --accent-2-strong: #6b7a5b;
+  --accent-3: #4e6e82;
+  --accent-3-strong: #3e5a6b;
+  --accent-4: #c68a2e;
+  --accent-4-strong: #a06e1e;
+  --alc-1: #eae0c8;
+  --alc-2: #d8c194;
+  --alc-3a: #c8ab73;
+  --alc-3: #b6925a;
+  --alc-3b: #a37c45;
+  --alc-4: #8a6537;
+  --alc-5: #6e4e2a;
+  --crome-cereals: #cdb97e;
+  --crome-oilseed: #c89a4e;
+  --crome-rootmaize: #b07c56;
+  --crome-grass: #9aaa7e;
+  --crome-trees: #6f8060;
+  --crome-other: #d6d0c2;
+  --species: #8a739e;
+  --species-strong: #6e587f;
+  --water: #47859b;
+  --water-strong: #33697b;
+  --hairline: #ddd6c7;
+
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow-soft: 0 1px 2px rgba(26, 25, 21, 0.04), 0 8px 28px rgba(26, 25, 21, 0.07);
+  --panel-gap: 18px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---- Layout: map fills the viewport edge to edge --------------------- */
+
+#app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+/* A calm fade-in once the first frame has painted. */
+.maplibregl-map {
+  opacity: 0;
+  transition: opacity 600ms ease;
+}
+body.is-ready .maplibregl-map {
+  opacity: 1;
+}
+
+.maplibregl-canvas {
+  outline: none;
+}
+
+/* ---- Floating control panel (top-left) ------------------------------ */
+
+.panel {
+  position: absolute;
+  top: var(--panel-gap);
+  left: var(--panel-gap);
+  z-index: 10;
+  width: 312px;
+  max-width: calc(100vw - 2 * var(--panel-gap));
+  padding: 22px 22px 20px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: saturate(1.05);
+}
+
+.panel__head {
+  margin-bottom: 18px;
+}
+
+.panel__wordmark {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.panel__tagline {
+  margin: 7px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-muted);
+  max-width: 26ch;
+}
+
+/* Each layer group sits under a hairline divider with its own heading. */
+.panel__group {
+  border-top: 1px solid var(--hairline);
+  padding-top: 15px;
+  margin-top: 15px;
+}
+
+.panel__section-label {
+  margin: 0 0 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+/* ---- Layer toggle switch -------------------------------------------- */
+
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle + .toggle {
+  margin-top: 14px;
+}
+
+/* A layer whose data failed to load: toggle stays visible but greyed and inert. */
+.toggle.is-unavailable {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+
+.toggle__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.toggle__label {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.toggle__desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ink-muted);
+}
+
+/* Visually hidden checkbox drives the painted track/thumb. */
+.toggle__input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+
+.toggle__track {
+  position: relative;
+  flex: none;
+  margin-top: 1px;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  transition: background 220ms ease, border-color 220ms ease;
+}
+
+.toggle__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+  box-shadow: 0 1px 2px rgba(26, 25, 21, 0.18);
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), background 220ms ease;
+}
+
+.toggle__input:checked + .toggle__track {
+  background: var(--toggle-accent, var(--accent));
+  border-color: var(--toggle-accent, var(--accent));
+}
+
+.toggle__input:checked + .toggle__track .toggle__thumb {
+  transform: translateX(16px);
+  background: var(--surface);
+}
+
+.toggle__input:focus-visible + .toggle__track {
+  outline: 2px solid var(--toggle-accent, var(--accent));
+  outline-offset: 2px;
+}
+
+/* ---- Group explanation drop-down ------------------------------------ */
+
+/* Hidden until any layer in the group is on. */
+.panel__about {
+  display: none;
+  margin-top: 14px;
+}
+.panel__about.is-active {
+  display: block;
+}
+
+.panel__about-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.panel__about-head:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.panel__about-caret {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  transition: transform 220ms ease;
+  transform: rotate(-90deg); /* collapsed → points right */
+}
+.panel__about.is-open .panel__about-caret {
+  transform: rotate(0deg); /* expanded → points down */
+}
+
+/* Smooth expand/collapse via a grid-rows trick (animates intrinsic height). */
+.panel__about-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 280ms ease, opacity 220ms ease;
+}
+.panel__about.is-open .panel__about-body {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.panel__about-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.panel__about-para {
+  margin: 10px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--hairline);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+.panel__about-para:first-child {
+  margin-top: 11px;
+}
+
+/* ---- Per-layer species selector (shown only while its layer is on) -- */
+
+.panel__selector {
+  display: none;
+  margin-top: 11px;
+}
+.panel__selector.is-active {
+  display: block;
+}
+
+.panel__selector-input {
+  width: 100%;
+  padding: 6px 9px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236F6B60' d='M0 0h10L5 6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 26px;
+}
+.panel__selector-input:focus-visible {
+  outline: 2px solid var(--species);
+  outline-offset: 1px;
+}
+
+.panel__selector-name {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.panel__selector-sci {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--ink-muted);
+}
+
+/* ---- Per-layer legend (shown only while its layer is on) ------------ */
+
+.panel__legend {
+  display: none;
+  margin-top: 10px;
+  padding-left: 1px;
+}
+.panel__legend.is-active {
+  display: block;
+}
+
+.panel__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+}
+.panel__legend-item:first-child {
+  margin-top: 0;
+}
+
+.panel__legend-swatch {
+  flex: none;
+  width: 16px;
+  height: 11px;
+  border-radius: 2px;
+  border: 1px solid rgba(26, 25, 21, 0.08);
+}
+
+.panel__legend-label {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--ink-muted);
+}
+
+/* ---- Hover info card ------------------------------------------------ */
+
+.info-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  pointer-events: none;
+  width: max-content;
+  max-width: 248px;
+  padding: 11px 13px 11px 15px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-soft);
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+/* An accent spine on the left edge ties the card to the hovered layer. */
+.info-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--card-accent, var(--accent));
+}
+
+.info-card.is-visible {
+  opacity: 1;
+}
+
+.info-card__title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 14.5px;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+}
+
+.info-card__subtitle {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--card-accent, var(--accent));
+}
+
+.info-card__meta {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--ink-muted);
+}
+
+.info-card__note {
+  margin-top: 7px;
+  max-width: 30ch;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-muted);
+}
+
+/* "More info" link — only present on cards that carry one (e.g. marine sites). */
+.info-card.is-interactive {
+  pointer-events: auto;
+}
+
+.info-card__link {
+  display: inline-block;
+  margin-top: 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--card-accent, var(--accent));
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 120ms ease;
+}
+
+.info-card__link:hover {
+  border-bottom-color: var(--card-accent, var(--accent));
+}
+
+/* =========================================================================
+   MapLibre controls — recoloured to the palette, minimal chrome.
+   ========================================================================= */
+
+.maplibregl-ctrl-group {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+.maplibregl-ctrl-group button {
+  width: 32px;
+  height: 32px;
+  background: var(--surface);
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--hairline);
+}
+
+.maplibregl-ctrl-group button:hover {
+  background: var(--paper);
+}
+
+.maplibregl-ctrl-group button:focus,
+.maplibregl-ctrl-group button:focus:not(:focus-visible) {
+  box-shadow: none;
+}
+
+.maplibregl-ctrl-group button:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* Custom +/- glyphs in ink. */
+.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
+.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
+  background-image: none;
+}
+.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon::after,
+.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--ink);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon::after {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 13 13'%3E%3Cpath fill='%23000' d='M6 0h1v6h6v1H7v6H6V7H0V6h6z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 13 13'%3E%3Cpath fill='%23000' d='M6 0h1v6h6v1H7v6H6V7H0V6h6z'/%3E%3C/svg%3E");
+}
+.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon::after {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='3' viewBox='0 0 13 3'%3E%3Crect fill='%23000' y='1' width='13' height='1'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='3' viewBox='0 0 13 3'%3E%3Crect fill='%23000' y='1' width='13' height='1'/%3E%3C/svg%3E");
+}
+.maplibregl-ctrl-icon {
+  position: relative;
+}
+
+/* Scale bar — quiet, monospaced. */
+.maplibregl-ctrl-scale {
+  background: transparent;
+  border: 1px solid var(--ink-muted);
+  border-top: none;
+  border-radius: 0 0 3px 3px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  padding: 1px 5px 2px;
+  margin: 0 0 26px 12px;
+  opacity: 0.85;
+}
+
+/* Attribution — present but unobtrusive. */
+.maplibregl-ctrl-attrib.maplibregl-compact {
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-soft);
+  border: 1px solid var(--hairline);
+}
+.maplibregl-ctrl-attrib {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--ink-muted);
+}
+.maplibregl-ctrl-attrib-button {
+  background-color: transparent;
+}
+
+/* ---- Small screens: let the panel breathe, keep the map dominant ---- */
+@media (max-width: 540px) {
+  :root {
+    --panel-gap: 12px;
+  }
+  .panel {
+    width: auto;
+    right: var(--panel-gap);
+    padding: 18px 18px 16px;
+  }
+  .panel__wordmark {
+    font-size: 19px;
+  }
+}
+
+/* Respect reduced-motion preferences. */
+@media (prefers-reduced-motion: reduce) {
+  .maplibregl-map,
+  .toggle__track,
+  .toggle__thumb,
+  .info-card {
+    transition: none !important;
+  }
+}

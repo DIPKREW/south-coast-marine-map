@@ -1,0 +1,35 @@
+{
+  "name": "dorset-nature-map",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A calm, editorial interactive map of nature recovery across Dorset.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "data": "npm run data:sssi && npm run data:hona && npm run data:centres && npm run data:dwt && npm run data:water && npm run data:water-named && npm run data:alc && npm run data:alc-post1988 && npm run data:crome && npm run data:species && npm run data:marine && npm run data:ncerm",
+    "data:sssi": "node scripts/fetch-sssi.mjs",
+    "data:hona": "node scripts/build-hona.mjs",
+    "data:dwt": "node scripts/fetch-dwt.mjs",
+    "data:centres": "node scripts/build-centres.mjs",
+    "data:water": "node scripts/fetch-water.mjs",
+    "data:water-named": "node scripts/fetch-named-water.mjs",
+    "data:alc": "node scripts/fetch-alc.mjs",
+    "data:alc-post1988": "node scripts/fetch-alc-post1988.mjs",
+    "data:crome": "node scripts/build-crome.mjs",
+    "data:species": "node scripts/build-species.mjs",
+    "data:marine": "node scripts/fetch-marine.mjs",
+    "data:ncerm": "node scripts/build-ncerm.mjs"
+  },
+  "dependencies": {
+    "maplibre-gl": "^4.7.1",
+    "pmtiles": "^4.4.1"
+  },
+  "devDependencies": {
+    "mapshaper": "^0.7.33",
+    "osmtogeojson": "^3.0.0-beta.5",
+    "proj4": "^2.12.1",
+    "vite": "^5.4.10"
+  }
+}
