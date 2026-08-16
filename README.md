@@ -23,12 +23,12 @@ counties.
   **Off by default.** *Note: this layer's bundled data is still **Dorset-only** —
   it has not yet been rebuilt for the wider coastline.*
 - **Water body status** — a blue-green→dun scale — the Environment Agency's WFD
-  ecological classification of the 67 coastal and estuarine water bodies on this
+  ecological classification of the 60 coastal and estuarine water bodies on this
   coast (Cycle 4, 2025). Chemical status is on the card but not mapped, because
   every one of them fails it. **Off by default.**
 - **Storm overflows** (a subgroup, two layers):
   - **Annual spill data** — a pale rose→deep wine ramp — how many times each of
-    2,422 storm overflows discharged in 2025 and for how long, from the
+    1,959 storm overflows discharged in 2025 and for how long, from the
     Environment Agency's Event Duration Monitoring annual return. **Off by
     default.**
   - **Live discharge status** — is this overflow discharging *right now*, from the
@@ -37,6 +37,12 @@ counties.
 
 Every **off by default** layer is also **lazy** — it downloads nothing until its
 toggle is first switched on (see [Layers load lazily](#layers-load-lazily)).
+
+Which sites count as "on this coast" is decided by a **catchment boundary**, not a
+box: a site is included if its water drains here, however far inland it sits (see
+[The catchment boundary](#the-catchment-boundary--what-counts-as-on-this-coast)).
+Some of those sites are well north of the opening view — up the Hampshire Avon
+past Salisbury — so pan north to see them.
 
 **Dormant behind the feature flag** (Dorset-only data): SSSIs, High Opportunity
 Nature Areas, Dorset Wildlife Trust reserves & visitor centres, rivers &
@@ -80,6 +86,7 @@ npm run data:crome       # rebuild Field crops (CROME) vector tiles (needs tippe
 npm run data:species     # rebuild the Notable species grid from the NBN Atlas
 npm run data:marine      # rebuild marine protected areas (MCZ / marine SAC / coastal SPA)
 npm run data:ncerm       # rebuild coastal erosion risk from the EA NCERM (WFS)
+npm run data:catchment   # rebuild the hydrological (catchment) boundary — run BEFORE the two below
 npm run data:storm-overflows # rebuild the EA EDM storm overflow annual return (latest year)
 npm run data:wfd         # rebuild WFD coastal & transitional water body classifications
 ```
@@ -501,6 +508,65 @@ risk ramp; the committed `public/data/ncerm.geojson` stores `{ risk, dist }` onl
 - **Hover** — the risk band + the projected recession ("≈ N m, no future
   intervention"). Lowest hover priority — any specific site sits on top.
 
+### The catchment boundary — what counts as "on this coast"
+
+`npm run data:catchment` (`scripts/build-catchment-boundary.mjs`) builds
+`public/data/catchment-boundary.geojson`: the land whose water ends up on this
+coast, following **watersheds** rather than a straight edge. The storm overflow
+and water body layers are filtered against it.
+
+It replaced a rectangle, which was wrong in both directions — it pulled in the
+whole Bristol Channel coast, and it cut the Hampshire Avon off at 51.1°N. A site
+near Salisbury is 40 km inland and unambiguously part of this story; a site at
+Bideford is on the coast and unambiguously isn't.
+
+**What is not in the open data.** There is *no* published field anywhere in the
+WFD data linking a river water body, or its catchment, to the transitional/coastal
+water body it drains into. Ruled out one by one: the river catchment dataset
+carries the hierarchy (`rbd_id` / `mancat_id` / `opcat_id` / `caba_catchment_id`)
+but no downstream reference; the TraC dataset's `*_alt` catchment fields are just
+duplicates of the primary ones; every TraC body sits in a *pseudo* management
+catchment ("South West TraC") pooling the whole river basin district; there are no
+catchment polygons keyed to TraC ids; and the Catchment Data Explorer serves HTML
+only. So the link is **derived geometrically**.
+
+**Operational catchments are the unit.** Unlike management catchments they never
+straddle two coasts — "North Cornwall, Seaton, Looe and Fowey" is one management
+catchment holding both the Camel (drains north to the Celtic Sea) and the Fowey
+(drains south), so working at management-catchment level would have to get one of
+them wrong.
+
+The method: split the TraC water bodies into this project's sea and the Bristol
+Channel / Celtic Sea (an explicit, reasoned list of nine north-and-west-draining
+operational catchments); dissolve the river water body catchments into operational
+catchments; call an operational catchment **coastal** where its boundary comes
+within 1 km of a TraC body — that contact *is* the river mouth — and **in** or
+**out** by which sea it meets; give a landlocked catchment its management
+catchment's verdict; then union.
+
+Three details that each cost a round of wrong answers, and are the reason the
+build script is longer than it looks:
+
+- **River catchments do not tile the land.** A coastal town with no river of its
+  own — Brighton, Penzance — has no river catchment polygon at all, so a union of
+  them alone leaves holes exactly where the coastal outfalls are. The EA's
+  *management* catchment polygons do tile completely, so they supply the area
+  while the operational verdicts supply the hydrology.
+- **That fringe cuts both ways.** In a management catchment spanning two coasts,
+  the same coastal fringe hands back the north-coast towns the carve was meant to
+  remove — Padstow, Newquay and Hayle all sit seaward of their river catchments.
+  So the north-draining waters take their own 2.5 km fringe with them.
+- **Outfalls sit at the shoreline by design**, many below mean high water. Simplify
+  the land and the sea together and they vanish into the sliver between the two:
+  at 12% simplification that silently lost Torquay, Newton Abbot and the Otter,
+  and simplifying the waters lost Brighton seafront, Portsmouth Harbour, Cowes and
+  the Hamble. The land is simplified first, the waters union in at full precision,
+  and a final 0.4 km seaward nudge closes what remains.
+
+Known limits: two long-sea outfalls (Littlehampton WWPS, Bexhill & Hastings WWTW)
+fall outside *every* WFD coastal water body — beyond the one-nautical-mile limit —
+so no catchment-based boundary can reach them.
+
 ### Storm overflows — two layers, deliberately separate
 
 Both sit under a **Storm overflows** subheading inside *At sea*, because they
@@ -512,8 +578,8 @@ live status feed. Both are **off by default** and lazy-loaded.
 Duration Monitoring annual return** from its open ArcGIS FeatureServer. The
 service holds every return from 2021 on; the script takes the **most recent year
 present** rather than hard-coding one, and reports which it used. For 2025 that
-is **2,422 overflows** in the project box, which together recorded **65,288
-spills**.
+is **1,959 overflows** inside the catchment boundary, which together recorded
+**~49,000 spills**.
 
 - **Style** — one dot per overflow, coloured *and* sized by spill count on a pale
   ash-rose → deep wine ramp (`--spill-0..4`). Banded, not continuous: the counts
@@ -531,8 +597,9 @@ useless. The National Storm Overflow Hub (Stream) is a map over one **public,
 anonymous ArcGIS feature service per water company** rather than a single
 national endpoint, so the module queries the four that operate on this coastline
 — South West Water, Southern Water, Wessex Water, Thames Water — pages each one,
-and merges (~2,460 overflows). **No API key and no registration**; the services
-send `access-control-allow-origin: *`, so the browser reads them directly.
+and merges, then applies the same catchment test (~1,980 overflows). **No API key
+and no registration**; the services send `access-control-allow-origin: *`, so the
+browser reads them directly.
 
 - Fetched **once**, on the first toggle-on. There is deliberately **no polling
   loop**: companies publish within ~60 minutes of a change, so a refresh is a
@@ -555,8 +622,9 @@ send `access-control-allow-origin: *`, so the browser reads them directly.
 `npm run data:wfd` (`scripts/fetch-wfd-coastal.mjs`) reads the **Water Framework
 Directive Transitional and Coastal Water Bodies, Cycle 4 Classification 2025** —
 the Environment Agency's own assessment of the water, which is why it sits as a
-peer of the other *At sea* layers rather than under *Storm overflows*. **67 water
-bodies** in the project box (43 estuarine, 24 coastal).
+peer of the other *At sea* layers rather than under *Storm overflows*. **60 water
+bodies** (39 estuarine, 21 coastal) — the nine north-and-west-draining ones are
+excluded by the same list the catchment boundary uses.
 
 - **Style** — filled polygons coloured by **ecological** status on a sea-green →
   dun scale (`--wfd-high..bad`), health reading as colour. A broad wash beneath
@@ -647,6 +715,7 @@ src/
     layers.js               ★ data-layer config + panel groups (about + legends)
     dataLayers.js           polygon / point / mixed / waterways / choropleth / marine / erosion / spills / live / WFD layers, lazy loading, priority hover
     liveOverflows.js        runtime fetch + merge of the per-company live storm overflow feeds
+    catchmentBoundary.js    the drainage boundary + point-in-polygon test, for the runtime layer
   ui/
     controlPanel.js         floating panel, grouped toggles, about drop-down, legend
     infoCard.js             the on-brand hover info card
@@ -668,6 +737,7 @@ scripts/fetch-marine.mjs    NE/JNCC ArcGIS → curated allow-list → clip to co
 scripts/build-ncerm.mjs     EA NCERM WFS → band recession distance → coastal erosion risk
 scripts/fetch-storm-overflows.mjs  EA EDM annual return (latest year) → spill count + duration per overflow
 scripts/fetch-wfd-coastal.mjs      EA WFD Cycle 4 → coastal/estuarine water bodies + ecological & chemical class
+scripts/build-catchment-boundary.mjs  EA WFD catchments → the hydrological boundary (watersheds, not a bbox)
 public/data/sssi.geojson    bundled SSSI polygons (committed)
 public/data/hona.geojson    bundled opportunity areas (committed)
 public/data/dwt-reserves.geojson  bundled DWT reserves from OSM (committed)
@@ -683,6 +753,7 @@ public/data/ncerm.geojson   coastal erosion risk frontages — { risk, dist } (c
 public/data/storm-overflows.geojson  EDM annual return — spills + duration per overflow (committed)
 public/data/storm-overflow-names.json  id → site-name lookup, joined by the LIVE layer (committed)
 public/data/wfd-coastal.geojson  WFD coastal & transitional water bodies + classification (committed)
+public/data/catchment-boundary.geojson  the drainage boundary the storm overflow layers filter against
 ```
 
 ## Adding a layer (built for growth)

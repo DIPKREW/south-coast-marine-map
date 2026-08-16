@@ -47,7 +47,33 @@ const FIELDS = [
   'classification_year',
   'river_basin_district',
   'country',
+  'opcat_id',
+  'operational_catchment',
 ].join(',');
+
+/**
+ * Water bodies inside the project's query box that drain to the BRISTOL CHANNEL
+ * or the CELTIC SEA rather than the English Channel — the north and west coasts
+ * of the South West peninsula. A rectangle cannot separate these: at Hayle the
+ * north and south Cornish coasts are barely 10 km apart, so no rule based on
+ * latitude or distance from the corridor can tell them apart — only which way
+ * the water actually goes.
+ *
+ * Kept in step with scripts/build-catchment-boundary.mjs, which uses the same
+ * list to decide which land catchments belong to the project. Listed by the EA's
+ * own operational catchment id so the call is reviewable.
+ */
+const NORTH_DRAINING_OPCATS = new Map([
+  [3220, 'Hayle Estuary — St Ives Bay, north Cornwall (Celtic Sea)'],
+  [3247, 'Lands End to Trevose Head Coastal — north-west Cornwall (Celtic Sea)'],
+  [3195, 'Gannel Estuary — Newquay, north Cornwall (Celtic Sea)'],
+  [3066, 'Camel Estuary — Padstow, north Cornwall (Celtic Sea)'],
+  [3108, 'Cornwall North Coastal — north Cornwall (Celtic Sea)'],
+  [3289, 'Lundy Coastal — Bristol Channel'],
+  [3026, 'Barnstaple Bay — Bristol Channel'],
+  [3442, 'Taw and Torridge Estuary — Bristol Channel'],
+  [3354, 'Parrett TraC — Severn Estuary / Bristol Channel'],
+]);
 
 // The five ecological bands, best → worst. Anything else (e.g. "Does not
 // require assessment") is carried through as-is and drawn in the unknown grey.
@@ -70,8 +96,18 @@ async function main() {
   const raw = await fetchAllFeatures(SERVICE, params, { pageSize: 1000 });
   if (raw.length < total) throw new Error(`Incomplete fetch: ${raw.length}/${total}`);
 
+  // Drop the water bodies that drain the other way. These sat inside the old
+  // rectangle purely because a rectangle drawn round the south coast also
+  // catches the north coast of the same peninsula.
+  const excluded = [];
   const features = raw
     .filter((f) => f.geometry?.coordinates?.length)
+    .filter((f) => {
+      const why = NORTH_DRAINING_OPCATS.get(f.properties?.opcat_id);
+      if (!why) return true;
+      excluded.push({ name: f.properties.water_body_name, why });
+      return false;
+    })
     .map((f) => {
       const p = f.properties ?? {};
       return {
@@ -88,7 +124,9 @@ async function main() {
       };
     });
 
-  const dropped = raw.length - features.length;
+  const dropped = raw.length - features.length - excluded.length;
+  console.log(`\n  excluded as north/west-draining (${excluded.length}) — Bristol Channel / Celtic Sea, not this project's water:`);
+  for (const e of excluded) console.log(`     – ${e.name}  [${e.why}]`);
 
   // Clip to the project box + light simplify, matching the marine layer. The
   // clip matters here: coastal water bodies are large and several run well past

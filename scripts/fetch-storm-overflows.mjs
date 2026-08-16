@@ -22,7 +22,7 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { SOUTH_COAST_BBOX, bboxParams, fetchAllFeatures, fetchCount, roundCoords } from './lib/southcoast.mjs';
+import { bboxParams, fetchAllFeatures, fetchCount, roundCoords, loadBoundary } from './lib/southcoast.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dir, '../public/data/storm-overflows.geojson');
@@ -92,17 +92,31 @@ const num = (v) => {
 
 async function main() {
   console.log('Fetching Environment Agency EDM storm overflow annual returns…');
-  console.log(`  project bbox [W,S,E,N] = ${SOUTH_COAST_BBOX.join(', ')}`);
+
+  // Membership is HYDROLOGICAL, not geometric: an overflow is in if its water
+  // ends up on this coast. The boundary's envelope is only the server-side query
+  // window — every point that comes back is then tested against the boundary
+  // itself, so Salisbury (40 km inland, drains south down the Hampshire Avon) is
+  // kept while Bideford (on the coast, drains to the Bristol Channel) is not.
+  const boundary = await loadBoundary();
+  const [w, s, e, n] = boundary.envelope;
+  console.log(`  catchment boundary envelope [W,S,E,N] = ${w.toFixed(3)}, ${s.toFixed(3)}, ${e.toFixed(3)}, ${n.toFixed(3)}`);
 
   const { latest, all } = await latestYear();
   console.log(`  years available: ${all.join(', ')}`);
   console.log(`  using most recent: ${latest}`);
 
   const where = `annual_return_year='${latest}'`;
-  const params = bboxParams({ where, outFields: FIELDS, geometryPrecision: '6' });
+  const envelope = {
+    geometry: boundary.envelope.join(','),
+    geometryType: 'esriGeometryEnvelope',
+    inSR: '4326',
+    spatialRel: 'esriSpatialRelIntersects',
+  };
+  const params = { ...envelope, where, outFields: FIELDS, geometryPrecision: '6' };
 
-  const total = await fetchCount(SERVICE, bboxParams({ where }));
-  console.log(`  ${total} storm overflow(s) in the box for ${latest}; paging…`);
+  const total = await fetchCount(SERVICE, { ...envelope, where });
+  console.log(`  ${total} storm overflow(s) in the query envelope for ${latest}; paging…`);
 
   const raw = await fetchAllFeatures(SERVICE, params, { pageSize: PAGE_SIZE });
   if (raw.length < total) throw new Error(`Incomplete fetch: ${raw.length}/${total}`);
@@ -111,10 +125,16 @@ async function main() {
   const byCompany = new Map();
   let noGeom = 0;
   let noCount = 0;
+  let outside = 0;
   const features = [];
   for (const f of raw) {
     if (!f.geometry?.coordinates?.length) {
       noGeom++;
+      continue;
+    }
+    // The hydrological test — this is what replaced the rectangle.
+    if (!boundary.contains(f.geometry.coordinates)) {
+      outside++;
       continue;
     }
     const p = f.properties ?? {};
@@ -169,6 +189,7 @@ async function main() {
 
   console.log(`\n  by water company:`);
   for (const [co, n] of [...byCompany].sort((a, b) => b[1] - a[1])) console.log(`     ${co}: ${n}`);
+  console.log(`\n  ${outside} of ${raw.length} overflow(s) in the envelope fell OUTSIDE the catchment boundary — dropped`);
   if (noGeom) console.log(`  ! ${noGeom} record(s) had no geometry — dropped`);
   if (noCount) console.log(`  ! ${noCount} record(s) had no spill count — dropped`);
 

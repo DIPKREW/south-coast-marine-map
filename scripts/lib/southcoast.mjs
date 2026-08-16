@@ -7,6 +7,13 @@
  * the per-edge reasoning); the other layers simply inherit it.
  */
 
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import { pointInGeometry } from './geo.mjs';
+
+const __dir = dirname(fileURLToPath(import.meta.url));
+
 // South Coast Marine Recovery Project bounding box, Land's End to Beachy Head,
 // extended seaward (south): [W, S, E, N].
 export const SOUTH_COAST_BBOX = [-6.2, 49.85, 0.6, 51.1];
@@ -60,6 +67,45 @@ export async function fetchCount(url, params) {
   const json = await res.json();
   if (json.error) throw new Error(`ArcGIS error: ${json.error.message}`);
   return json.count;
+}
+
+/**
+ * The SOUTH COAST HYDROLOGICAL BOUNDARY — the real drainage area, built by
+ * scripts/build-catchment-boundary.mjs. This, not the bbox, is what decides
+ * whether a storm overflow belongs to the project: a site is in if its water
+ * ends up on this coast, however far inland it sits.
+ *
+ * The bbox above is still used, but only as the ArcGIS query envelope — a cheap
+ * server-side prefilter. Every point that comes back is then tested against this
+ * boundary. The two are not interchangeable: the boundary reaches further north
+ * than the box (up the Hampshire Avon past Salisbury) and stops well short of it
+ * in the west (the whole Bristol Channel coast).
+ */
+export const BOUNDARY_PATH = resolve(__dir, '../../public/data/catchment-boundary.geojson');
+
+export async function loadBoundary() {
+  const fc = JSON.parse(await readFile(BOUNDARY_PATH, 'utf8'));
+  const feats = fc.features ?? (fc.geometries ?? []).map((g) => ({ geometry: g }));
+  const geometries = feats.map((f) => f.geometry).filter(Boolean);
+  if (!geometries.length) throw new Error(`no geometry in ${BOUNDARY_PATH} — run: npm run data:catchment`);
+
+  // Envelope of the boundary, for use as the ArcGIS query bbox.
+  let x0 = 180, y0 = 90, x1 = -180, y1 = -90;
+  const walk = (c) => {
+    if (typeof c[0] === 'number') {
+      if (c[0] < x0) x0 = c[0];
+      if (c[0] > x1) x1 = c[0];
+      if (c[1] < y0) y0 = c[1];
+      if (c[1] > y1) y1 = c[1];
+    } else c.forEach(walk);
+  };
+  geometries.forEach((g) => walk(g.coordinates));
+
+  return {
+    geometries,
+    envelope: [x0, y0, x1, y1],
+    contains: (point) => geometries.some((g) => pointInGeometry(point, g)),
+  };
 }
 
 /** Round coordinates in place to keep the committed GeoJSON small. */

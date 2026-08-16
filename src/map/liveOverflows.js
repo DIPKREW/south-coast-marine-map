@@ -19,19 +19,25 @@
  * A failure of ONE company degrades rather than breaks: the layer draws whatever
  * did come back and reports what didn't. Only an all-companies failure marks the
  * layer unavailable.
+ *
+ * Membership is HYDROLOGICAL. The companies' services can only be queried with a
+ * rectangle, so the catchment boundary's envelope is used as the query window
+ * and every point that comes back is then tested against the boundary itself —
+ * the same file, and the same ray-casting test, that the build-time layers use.
+ * That is what keeps an overflow near Salisbury (inland, drains south) in and one
+ * at Bideford (coastal, drains to the Bristol Channel) out.
  */
-
-// Same box as the build-time scripts — see scripts/lib/southcoast.mjs, which is
-// the pipeline's copy. [W, S, E, N].
-const SOUTH_COAST_BBOX = [-6.2, 49.85, 0.6, 51.1];
+import { loadCatchmentBoundary } from './catchmentBoundary.js';
 
 // A page from an ArcGIS feature service. The services cap responses at 1000–2000
-// records and South West Water alone has ~1300 in the box, so this must page.
+// records and South West Water alone returns well over that for the query
+// envelope, so this must page.
 const PAGE_SIZE = 1000;
 
-// The companies whose networks reach the Land's End → Beachy Head coastline.
-// (These four are exactly the companies present in the EA's annual return for
-// the same box, so the two storm overflow layers cover the same operators.)
+// The companies whose networks reach this coastline. All four are queried; the
+// catchment test then decides what actually belongs, which is why Thames Water
+// is still listed even though almost all of its network drains to the Thames —
+// the filter, not the company list, is what draws the line.
 const COMPANIES = [
   {
     name: 'South West Water',
@@ -59,13 +65,13 @@ function prop(props, key) {
   return undefined;
 }
 
-async function fetchCompany(company, signal) {
+async function fetchCompany(company, envelope, signal) {
   const features = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const qs = new URLSearchParams({
       where: '1=1',
       outFields: '*',
-      geometry: SOUTH_COAST_BBOX.join(','),
+      geometry: envelope.join(','),
       geometryType: 'esriGeometryEnvelope',
       inSR: '4326',
       spatialRel: 'esriSpatialRelIntersects',
@@ -112,9 +118,13 @@ const titleCase = (s) =>
  *   -1  monitor offline / no signal
  */
 export async function loadLiveOverflows({ base = '/', signal } = {}) {
+  // The boundary must be in hand before the companies are queried — its envelope
+  // is the query window.
+  const boundary = await loadCatchmentBoundary(base, signal);
+
   const [names, ...settled] = await Promise.all([
     fetchNames(base, signal),
-    ...COMPANIES.map((c) => fetchCompany(c, signal).then(
+    ...COMPANIES.map((c) => fetchCompany(c, boundary.envelope, signal).then(
       (features) => ({ company: c.name, features }),
       (error) => ({ company: c.name, error }),
     )),
@@ -128,9 +138,12 @@ export async function loadLiveOverflows({ base = '/', signal } = {}) {
 
   const features = [];
   const counts = { 1: 0, 0: 0, '-1': 0 };
+  let outside = 0;
   for (const { company, features: raw } of ok) {
     for (const f of raw) {
       if (!f.geometry?.coordinates?.length) continue;
+      // The hydrological test — this is what replaced the rectangle.
+      if (!boundary.contains(f.geometry.coordinates)) { outside++; continue; }
       const p = f.properties ?? {};
       const id = prop(p, 'id') ?? null;
       const rawStatus = Number(prop(p, 'status'));
@@ -173,6 +186,7 @@ export async function loadLiveOverflows({ base = '/', signal } = {}) {
       offline: counts['-1'],
       companies: ok.map((r) => r.company),
       failed: failures.map((f) => f.company),
+      outsideCatchment: outside,
       fetchedAt: Date.now(),
     },
   };
