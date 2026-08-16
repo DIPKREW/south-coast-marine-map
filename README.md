@@ -1,40 +1,41 @@
-# Dorset Nature Map
+# South Coast Marine Recovery Map
 
-A calm, editorial interactive map of the **whole of Dorset** — a cream/parchment
-canvas, thin charcoal linework, and muted accent colours for the data. Ten
-toggleable layers tell the nature-recovery story:
+A calm, editorial interactive map of the **South Coast Marine Recovery Project**
+coastline — **Land's End to Beachy Head**, across Cornwall, Devon, Dorset,
+Hampshire & the Isle of Wight, and Sussex. A cream/parchment canvas, thin
+charcoal linework, and muted accent colours for the data.
 
-- **Sites of Special Scientific Interest (SSSI)** — terracotta — what's protected now.
-- **High Opportunity Nature Areas** — sage — where recovery is targeted next.
-- **Dorset Wildlife Trust reserves** — slate — every reserve in DWT's directory,
-  as a shaded boundary where one is available and a marker elsewhere.
-- **DWT visitor centres** — gold markers — places to visit.
-- **Rivers & waterways** — water-blue — rivers, streams, canals and minor
-  channels as lines, plus two named water bodies (the Fleet + Poole Harbour).
-- **Agricultural land classification** — a muted earth ramp (Grade 1→5) under the
-  others, showing farmland quality; a detailed post-1988 resurvey (finer 3a/3b)
-  layers over the coarse provisional wash. **Off by default.**
-- **Field crops (CROME)** — what was growing in each field in 2024, by category,
-  from the Crop Map of England (vector tiles, zoom in from ~z11). **Off by default.**
-- **Notable species (NBN Atlas)** — a coarse grid of where flagship species have
-  been recorded, one species at a time via a selector. **Off by default.**
-- **Marine protected areas** — deep teal — Dorset's Marine Conservation Zones,
-  marine SACs and coastal SPAs, drawn as outlined areas (solid / dashed / dotted
-  by type) so the heavy overlaps stay legible. **Off by default.**
+This repo began as a clone of the **Dorset Nature Map** and keeps its whole
+codebase. What changed: the marine layers now cover the full project coastline
+instead of the Dorset coast, and the Dorset-only **land** layers are switched off
+behind a feature flag (see [Feature flag](#feature-flag--the-dorset-land-layers)).
+They are dormant, not deleted — ready to be re-enabled or extended to the other
+counties.
+
+**Live layers — the "At sea" group:**
+
+- **Marine protected areas** — deep teal — 66 Marine Conservation Zones, marine
+  SACs and coastal SPAs between Land's End and Beachy Head, drawn as outlined
+  areas (solid / dashed / dotted by type) so the heavy overlaps stay legible.
+  **Off by default.**
 - **Coastal erosion risk** — a warm pale→clay ramp — how far each stretch of coast
   could erode by 2055 with no future intervention (Environment Agency NCERM).
-  **Off by default.**
+  **Off by default.** *Note: this layer's bundled data is still **Dorset-only** —
+  it has not yet been rebuilt for the wider coastline.*
+
+**Dormant behind the feature flag** (Dorset-only data): SSSIs, High Opportunity
+Nature Areas, Dorset Wildlife Trust reserves & visitor centres, rivers &
+waterways, Agricultural Land Classification, field crops (CROME), and notable
+species (NBN Atlas).
 
 Hovering any feature shows a small on-brand **info card** (name, type, area, a
 short note — and, for marine sites, a "More info ↗" link to its national record).
-Pan/zoom is bounded to Dorset, its neighbouring counties, and far enough out to
-sea to take in the offshore marine sites.
+Pan/zoom is bounded to the project coastline plus a margin out to sea.
 
 The aesthetic is the point: a sibling to the Anthropic site / CRADLE. Warm,
-restrained, lots of breathing room — the accents stay muted so the map stays
-calm despite ten layers.
+restrained, lots of breathing room — the accents stay muted so the map stays calm.
 
-![Dorset Nature Map](docs/preview.png)
+![Preview — inherited from the Dorset Nature Map build, not yet re-shot for the South Coast map](docs/preview.png)
 
 ## Quick start
 
@@ -43,7 +44,7 @@ npm install      # install dependencies
 npm run dev      # start the dev server (opens http://localhost:5173)
 ```
 
-That's it — the base map (OpenFreeMap) and all ten bundled data layers work with
+That's it — the base map (OpenFreeMap) and all the bundled data layers work with
 **no API keys**.
 
 ### Other commands
@@ -81,15 +82,58 @@ npm run data:ncerm       # rebuild coastal erosion risk from the EA NCERM (WFS)
   CSS custom properties at startup, so the CSS and the map style never drift.
   The two data accents (terracotta `--accent`, sage `--accent-2`) live here too.
 
-## Bounded to Dorset
+## Feature flag — the Dorset land layers
+
+The land layers inherited from the Dorset Nature Map hold **Dorset-only** data,
+which would be misleading on a map covering five counties. They are switched off
+by a single flag near the top of `src/map/layers.js`:
+
+```js
+export const SHOW_DORSET_LAND_LAYERS = false;   // ← flip to true to bring them back
+```
+
+It governs all eight of them — `sssi`, `hona`, `reserves`, `centres`, `water`,
+`alc`, `crome`, `species` (the `DORSET_LAND_LAYER_IDS` list beside the flag).
+
+- **`false` (default)** — none of these layers fetch on load, none render, and
+  none of their toggles appear in the layer panel. Their data files are never
+  requested; a panel group left with no layers (Designations, Water, Land,
+  Species, Dorset Wildlife Trust) is skipped entirely, so no empty heading is
+  left behind. Their credits also drop out of the attribution bar.
+- **`true`** — every one of them returns exactly as it was in the Dorset build:
+  same layers, same paint, same panel groups in the same order, same attribution.
+
+**Nothing is deleted.** Every layer definition, data-fetch script (`npm run
+data:sssi`, `data:hona`, …), paint rule and stylesheet stays in the codebase,
+dormant — so they can be re-enabled or widened to the other counties later.
+
+The **"At sea" group** (marine protected areas, coastal erosion risk) is *not*
+governed by the flag and is always shown.
+
+## Bounded to the project coastline
 
 The map can't drift off to open ocean or other regions. `createMap.js` sets
-`maxBounds` to `[[-3.5, 50.3], [-1.3, 51.3]]` (all of Dorset plus a margin into
-Devon, Somerset, Wiltshire and Hampshire — and far enough **south, out to sea**,
-to take in the offshore marine sites: the southernmost Dorset marine site sits at
-~50.354) and `minZoom: 8`, so at the furthest zoom-out the whole county fills the
-viewport and there's no world view. `maxZoom: 20` keeps the ~50 m square. The map
-opens framed on the whole county (`bounds` in `createMap.js`).
+`maxBounds` to `[[-6.7, 48.8], [1.2, 52.1]]` and `minZoom: 6.5`; `maxZoom: 20`
+keeps the ~50 m square. The map opens framed on the whole coastline
+(`SOUTH_COAST_FRAME`, `[[-6.2, 49.85], [0.7, 51.0]]`).
+
+Those bounds comfortably contain the full extent of the fetched marine data:
+
+| | West | South | East | North |
+|---|---|---|---|---|
+| **Marine data extent** | -6.099 (Cape Bank MCZ) | 49.896 (Lizard Point SAC) | 0.572 (Beachy Head East MCZ) | 50.938 (Solent & Southampton Water SPA) |
+| **Fetch bbox** | -6.2 | 49.85 | 0.6 | 51.1 |
+| **`maxBounds`** | -6.7 | 48.8 | 1.2 | 52.1 |
+
+The **latitude** span of `maxBounds` (3.3°) is deliberately much taller than the
+data (1.0°). `maxBounds` constrains the camera on *both* axes, so a box only as
+tall as the data would cap the zoom-out before the full 6.7°-wide coastline could
+fit on screen — Land's End would sit off the west edge with no way to zoom out.
+A 16:10 viewport needs roughly `lonSpan × 0.625 × cos(50°) ≈ 3.2°` of latitude
+headroom to show the whole width at once.
+
+`minZoom` dropped from 8 (single-county Dorset) to 6.5 for the same reason.
+Per-**layer** `minzoom` values (e.g. CROME at z11) are unchanged.
 
 ## The data layers
 
@@ -341,25 +385,54 @@ polygons with only `{ sp, n, res }` — **no coordinates**.
 
 ### Marine protected areas — deep teal (outlined, by designation type)
 
-Dorset's seas hold a network of protected areas, and they overlap heavily, so they
-are drawn as **outlined areas** (a very faint shared teal fill + a type-styled
-outline) rather than solid fills — the overlaps stay legible. `npm run data:marine`
-(`scripts/fetch-marine.mjs`) pulls three Natural England / JNCC open ArcGIS layers,
-clips them to the **coastal box** (not the land mask), and tags each feature with
-`{ mtype, name, code }`. Selection is an explicit, reported allow-list per type:
+The South Coast's seas hold a network of protected areas, and they overlap
+heavily, so they are drawn as **outlined areas** (a very faint shared teal fill +
+a type-styled outline) rather than solid fills — the overlaps stay legible.
+`npm run data:marine` (`scripts/fetch-marine.mjs`) pulls three Natural England /
+JNCC open ArcGIS layers, paginating in 1000-feature pages, clips them to the
+**project box** (not a land mask), and tags each feature with
+`{ mtype, name, code }`.
 
-| Type | Style | Sites (Dorset) |
-|---|---|---|
-| **MCZ** — Marine Conservation Zone | solid | Studland Bay, Poole Rocks, South Dorset, Chesil Beach & Stennis Ledges, Purbeck Coast, South of Portland, Southbourne Rough |
-| **SAC** — marine/coastal Special Area of Conservation | dashed | Lyme Bay and Torbay, Studland to Portland, Chesil & The Fleet, Isle of Portland to Studland Cliffs, St Albans Head to Durlston Head, Sidmouth to West Bay, Solent Maritime |
-| **SPA** — coastal Special Protection Area | dotted | Solent and Dorset Coast, Poole Harbour, Chesil Beach & the Fleet |
+**Fetch bbox** `[W, S, E, N] = [-6.2, 49.85, 0.6, 51.1]` — the South Coast Marine
+Recovery Project corridor, Land's End to Beachy Head. (The brief's rough box was
+`[-5.8, 49.9, 0.6, 51.1]`; it is nudged west and south so that every allow-listed
+site sits *wholly* inside it — Cape Bank MCZ reaches -6.099, Lands End and Cape
+Bank SAC -5.975, Lizard Point SAC 49.896. With the box sized this way the clip
+step is a **no-op** on the current selection: no site is cut off at a box edge.)
 
-The MCZ list is the **Dorset** zones (the Isle-of-Wight / Devon offshore MCZs that
-merely clip the box's edge are excluded); the SAC/SPA lists are the genuinely
-marine/coastal sites (the inland heath SACs/SPAs that overlap the box are not).
-**The pipeline keeps overlaps deliberately** — it does *not* run mapshaper `-clean`,
-which would treat a small contained polygon (e.g. Poole Rocks MCZ, which sits inside
-the Studland-to-Portland SAC) as a sliver and delete it.
+**66 sites**, by type and county:
+
+| Type | Style | Cornwall | Devon | Dorset | Hants & IoW | Sussex | Total |
+|---|---|---|---|---|---|---|---|
+| **MCZ** — Marine Conservation Zone | solid | 8 | 8 | 7 | 7 | 6 | **36** |
+| **SAC** — marine/coastal Special Area of Conservation | dashed | 4 | 5 | 6 | 4 | 0 | **19** |
+| **SPA** — coastal Special Protection Area | dotted | 2 | 2 | 3 | 3 | 1 | **11** |
+| | | 14 | 15 | 16 | 14 | 7 | **66** |
+
+Selection stays an **explicit, curated allow-list per type**, now grouped by
+county in `SOURCES[].regions` and reported in full on every run. The wider box
+reaches ~51.1°N — well inland — so an unfiltered query would drag in dozens of
+inland heath, down and woodland SACs/SPAs (Dartmoor, Salisbury Plain, the New
+Forest, Ashdown Forest, the Dorset Heaths…). Each source also carries an
+`excluded` map of sites that *are* in the box but are deliberately left out, with
+the reason, also printed on every run — chiefly the north Cornwall / north Devon /
+Bristol Channel sites (outside the Land's End→Beachy Head corridor) and sites east
+of Beachy Head (Hastings Cliffs SAC; Dungeness SPA). To bring one in, move its
+code from `excluded` up into `regions`.
+
+**The pipeline keeps overlaps deliberately** — it does *not* run mapshaper
+`-clean`, which would treat a small contained polygon (e.g. Poole Rocks MCZ, which
+sits inside the Studland-to-Portland SAC) as a sliver and delete it.
+
+Two known data notes, both inherited from the Dorset build and unchanged here:
+
+- `-simplify 6% keep-shapes` collapses a handful of tiny multipart slivers to
+  `null` geometry (19 of 243 feature parts, mostly Sidmouth to West Bay SAC).
+  MapLibre ignores them and **no site loses all its geometry** — all 66 render.
+- Several offshore sites are genuinely **rectangular** in the source data
+  (Natural England draws them on lat/lon lines): South Dorset MCZ, Albert Field,
+  Offshore Overfalls, Utopia, West of Wight-Barfleur, Wight-Barfleur Reef SAC.
+  These are real boundaries, not clipping artefacts.
 
 - **Style** — deep teal (`--marine`, distinct from the river water-blue); one line
   layer per type (MCZ solid / SAC dashed / SPA dotted); faint fill doubles as the
@@ -395,13 +468,26 @@ A layer may also declare a `legend` (colour swatches) and/or a `species` selecto
 renders an interactive "More info" link (used by the marine sites). All reusable
 capabilities.
 
-Attribution (shown in the map's attribution control): Base map © OpenFreeMap /
-© OpenStreetMap contributors · SSSI © Natural England (contains Ordnance Survey
-data © Crown copyright) · Contains Dorset Council nature recovery data, Open
-Government Licence v3.0 · DWT reserves: list © Dorset Wildlife Trust, boundaries
-© OpenStreetMap contributors · ALC © Natural England (ADAS &amp; Defra) · Crop Map
-of England © Rural Payments Agency / OGL · Species data: NBN Atlas contributors ·
-Marine data © Natural England / JNCC, OGL · Coastal erosion © Environment Agency, OGL.
+### Attribution
+
+Shown in the map's attribution control. The bar only ever credits sources the map
+is actually drawing, so the Dorset land credits are gated behind
+`SHOW_DORSET_LAND_LAYERS` alongside their layers (`DORSET_LAND_ATTRIBUTION` in
+`createMap.js`).
+
+**Always shown:**
+
+> Base map © OpenFreeMap / © OpenStreetMap contributors ·
+> **Marine data © Natural England / JNCC, OGL** ·
+> Coastal erosion © Environment Agency, OGL.
+
+**Added when `SHOW_DORSET_LAND_LAYERS` is `true`:**
+
+> SSSI © Natural England (contains Ordnance Survey data © Crown copyright) ·
+> Contains Dorset Council nature recovery data, Open Government Licence v3.0 ·
+> DWT reserves: list © Dorset Wildlife Trust, boundaries © OpenStreetMap
+> contributors · ALC © Natural England (ADAS &amp; Defra) · Crop Map of England ©
+> Rural Payments Agency / OGL · Species data: NBN Atlas contributors.
 
 ## Project structure
 
@@ -497,15 +583,32 @@ Static build, no backend.
 
   ```bash
   npm run build
-  npx wrangler pages deploy dist --project-name dorset-nature-map
+  npx wrangler pages deploy dist --project-name south-coast-marine-map
   ```
 
 No environment variables are required; data layers are static GeoJSON plus one PMTiles archive (CROME), read with HTTP range requests — served fine by Cloudflare Pages and any standard static host.
 (If you later swap to a keyed tile provider, see `.env.example` and read the key
 via `import.meta.env` in `src/map/mapStyle.js`.)
 
-## Out of scope (deliberately, for this build)
+## Out of scope (deliberately, for this stage)
 
-AI analysis panel, drawing / area-selection tools, any backend, and Water
-Framework Directive quality colouring for the rivers (a separate follow-on).
-Just the map, the eight layers, the info card, and the aesthetic — done carefully.
+Later stages: storm overflow, WFD water body status, seabed habitats, and
+recreational pressure layers.
+
+Still out of scope entirely: AI analysis panel, drawing / area-selection tools,
+and any backend.
+
+Known follow-ups for this stage, flagged rather than guessed:
+
+- The marine layer's **"About marine protected areas"** copy still opens *"Dorset's
+  seas hold a network…"*. It was left untouched (the marine legends and abouts were
+  in-scope-to-keep), but it needs rewriting for a five-county map — Ben's words.
+- **Coastal erosion risk (NCERM)** data is still Dorset-only; it has not been
+  rebuilt for the wider coastline.
+- `public/data/marine.geojson` grew from ~616 KB to ~2.7 MB. MapLibre fetches a
+  GeoJSON source as soon as it is added, so this downloads on page load even
+  though the layer is off by default.
+- `docs/preview.png` is still the Dorset build's screenshot.
+- At the default framing the control panel overlaps the Cornwall end of the
+  coastline. Fixing it is a design call (asymmetric `fitBoundsOptions` padding, a
+  collapsible panel, or a different default view).

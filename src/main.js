@@ -22,8 +22,8 @@ map.on('load', () => {
     layers: dataLayers,
     groups: panelGroups,
     controllers,
-    wordmark: 'Dorset Nature Map',
-    tagline: 'Mapping nature recovery across Dorset',
+    wordmark: 'South Coast Marine Recovery Map',
+    tagline: "Marine protected areas from Land's End to Beachy Head",
   });
   document.getElementById('app').appendChild(panel);
 

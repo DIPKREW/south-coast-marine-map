@@ -1,9 +1,9 @@
 {
-  "name": "dorset-nature-map",
+  "name": "south-coast-marine-map",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "A calm, editorial interactive map of nature recovery across Dorset.",
+  "description": "A calm, editorial interactive map of marine protected areas along the South Coast Marine Recovery Project coastline.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

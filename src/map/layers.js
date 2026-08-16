@@ -24,6 +24,38 @@ import { palette } from '../design/tokens.js';
 
 const base = import.meta.env.BASE_URL;
 
+/**
+ * FEATURE FLAG — the Dorset LAND layers.
+ *
+ * This site covers the South Coast Marine Recovery Project coastline (Land's End
+ * to Beachy Head), but its land layers still hold DORSET-ONLY data inherited from
+ * the Dorset Nature Map. Rather than delete them, they are switched off here:
+ * with the flag false they never fetch, never render, and their toggles never
+ * appear in the layer panel — but every layer definition, data-fetch script,
+ * paint rule and stylesheet below stays intact and dormant, ready to be switched
+ * back on or extended to the other counties.
+ *
+ * Flip to `true` to restore the Dorset land layers exactly as they were.
+ *
+ * The "At sea" group (marine protected areas, coastal erosion risk) is NOT
+ * governed by this flag and is always shown.
+ */
+export const SHOW_DORSET_LAND_LAYERS = false;
+
+// Every layer the flag governs: designations, DWT sites, water, land and species.
+const DORSET_LAND_LAYER_IDS = [
+  'sssi', // Sites of Special Scientific Interest
+  'hona', // LNRS High Opportunity Nature Areas
+  'reserves', // Dorset Wildlife Trust reserves
+  'centres', // Dorset Wildlife Trust visitor centres
+  'water', // Rivers & waterways
+  'alc', // Agricultural Land Classification
+  'crome', // CROME field crops
+  'species', // NBN Atlas notable species
+];
+
+const isHidden = (id) => !SHOW_DORSET_LAND_LAYERS && DORSET_LAND_LAYER_IDS.includes(id);
+
 // Curated flagship species for the NBN Atlas grid (key matches build-species.mjs).
 const SPECIES = [
   { key: 'sandlizard', common: 'Sand lizard', sci: 'Lacerta agilis' },
@@ -55,7 +87,9 @@ const ha = (v) =>
     ? null
     : `${Number(v).toLocaleString('en-GB', { maximumFractionDigits: 1 })} ha`;
 
-export const dataLayers = [
+// The full registry — every layer, including the dormant Dorset land layers.
+// Consumers import the filtered `dataLayers` below, not this.
+const allDataLayers = [
   {
     id: 'centres',
     label: 'DWT visitor centres',
@@ -378,7 +412,7 @@ export const dataLayers = [
 // Panel layout — groups shown top-to-bottom, decoupled from map draw order so
 // the panel reads naturally (designations first, then the DWT theme). A group
 // may carry an `about` drop-down (reusable; only DWT is populated for now).
-export const panelGroups = [
+const allPanelGroups = [
   { label: 'Designations', layerIds: ['sssi', 'hona'] },
   // Marine & coastal — each layer carries its own legend + about (per-layer).
   { label: 'At sea', layerIds: ['marine', 'ncerm'] },
@@ -400,3 +434,19 @@ export const panelGroups = [
     },
   },
 ];
+
+// ---- What the app actually consumes ----
+//
+// With SHOW_DORSET_LAND_LAYERS false the Dorset land layers are dropped from
+// both the map registry and the panel layout. Dropping them from `dataLayers` is
+// what stops the fetch and the render — applyDataLayers never adds their source,
+// so their GeoJSON/PMTiles are never requested. Dropping them from the groups
+// removes their toggles; a group left with no layers is skipped entirely by
+// buildControlPanel, so no empty "Land" or "Species" heading is left behind.
+//
+// The "At sea" group is untouched: neither `marine` nor `ncerm` is flag-governed.
+export const dataLayers = allDataLayers.filter((l) => !isHidden(l.id));
+
+export const panelGroups = allPanelGroups
+  .map((g) => ({ ...g, layerIds: g.layerIds.filter((id) => !isHidden(id)) }))
+  .filter((g) => g.layerIds.length > 0);
