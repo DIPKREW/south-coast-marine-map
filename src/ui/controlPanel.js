@@ -7,6 +7,14 @@
  * beneath the group's toggles whenever any of its layers is on, with a caret to
  * collapse/expand manually. It auto-expands when the group is (re)activated and
  * hides when every layer in the group is off.
+ *
+ * The panel COLLAPSES to a small icon tab in the same corner, so it never covers
+ * the map. Collapsing only sets a class — the body is `display: none`, never
+ * rebuilt — so toggle positions and per-section about states survive a
+ * collapse/expand round trip for free.
+ *
+ * Returns a handle: { el, collapse, expand, isCollapsed } — `el` is the element
+ * to mount, the rest lets the caller (main.js) collapse on map interaction.
  */
 export function buildControlPanel({ layers, groups, controllers, wordmark, tagline }) {
   const panel = el('section', 'panel', { role: 'region', 'aria-label': `${wordmark} controls` });
@@ -14,12 +22,30 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
 
   // ---- Masthead ----
   const head = el('header', 'panel__head');
+  const headText = el('div', 'panel__head-text');
   const mark = el('h1', 'panel__wordmark');
   mark.textContent = wordmark;
   const tag = el('p', 'panel__tagline');
   tag.textContent = tagline;
-  head.append(mark, tag);
+  headText.append(mark, tag);
+
+  // Collapse control, top-right of the header. When collapsed the panel shrinks
+  // to this button, so the button *is* the tab that reopens it — click only, no
+  // hover, so it never fights the map's own hover cards.
+  const bodyId = 'panel-body';
+  const collapseBtn = el('button', 'panel__collapse', {
+    type: 'button',
+    'aria-expanded': 'true',
+    'aria-controls': bodyId,
+  });
+  collapseBtn.appendChild(el('span', 'panel__collapse-icon', { 'aria-hidden': 'true' }));
+
+  head.append(headText, collapseBtn);
   panel.appendChild(head);
+
+  // Everything below the masthead lives in the scrollable, collapsible body.
+  const body = el('div', 'panel__body', { id: bodyId });
+  panel.appendChild(body);
 
   // ---- Layer toggles, grouped ----
   const groupDefs = groups?.length ? groups : [{ label: 'Layers', layerIds: layers.map((l) => l.id) }];
@@ -94,10 +120,42 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
       sync(); // initial state
     }
 
-    panel.appendChild(section);
+    body.appendChild(section);
   }
 
-  return panel;
+  // ---- Collapse / expand ----
+  let collapsed = false;
+  const apply = () => {
+    panel.classList.toggle('is-collapsed', collapsed);
+    collapseBtn.setAttribute('aria-expanded', String(!collapsed));
+    const label = collapsed ? 'Show layer controls' : 'Hide layer controls';
+    collapseBtn.setAttribute('aria-label', label);
+    collapseBtn.setAttribute('title', label);
+  };
+
+  const setCollapsed = (next) => {
+    if (next === collapsed) return;
+    collapsed = next;
+    apply();
+  };
+
+  // Fired only when the person works the chevron themselves — never for a
+  // programmatic collapse. main.js uses it to stop auto-collapsing once they've
+  // taken manual control of the panel.
+  const userToggleListeners = [];
+  collapseBtn.addEventListener('click', () => {
+    setCollapsed(!collapsed);
+    for (const fn of userToggleListeners) fn(collapsed);
+  });
+  apply();
+
+  return {
+    el: panel,
+    collapse: () => setCollapsed(true),
+    expand: () => setCollapsed(false),
+    isCollapsed: () => collapsed,
+    onUserToggle: (fn) => userToggleListeners.push(fn),
+  };
 }
 
 function buildToggle(layer, controller, onChange) {

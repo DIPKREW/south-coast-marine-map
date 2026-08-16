@@ -97,8 +97,13 @@ body.is-ready .maplibregl-map {
   top: var(--panel-gap);
   left: var(--panel-gap);
   z-index: 10;
+  display: flex;
+  flex-direction: column;
   width: 312px;
   max-width: calc(100vw - 2 * var(--panel-gap));
+  /* Never taller than the viewport: the masthead stays put and .panel__body
+     scrolls instead, so an expanded About section can't push content off-screen. */
+  max-height: min(90vh, calc(100vh - 2 * var(--panel-gap)));
   padding: 22px 22px 20px;
   background: var(--surface);
   border: 1px solid var(--hairline);
@@ -107,8 +112,102 @@ body.is-ready .maplibregl-map {
   backdrop-filter: saturate(1.05);
 }
 
+/* Collapsed: the panel shrinks to the chevron button alone, in the same corner.
+   The body is display:none, so nothing else renders or occupies space. */
+.panel.is-collapsed {
+  width: auto;
+  max-height: none;
+  padding: 6px;
+}
+.panel.is-collapsed .panel__head-text,
+.panel.is-collapsed .panel__body {
+  display: none;
+}
+.panel.is-collapsed .panel__head {
+  margin-bottom: 0;
+}
+
 .panel__head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   margin-bottom: 18px;
+}
+
+.panel__head-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The scrolling region. Only this scrolls, so the wordmark and the collapse
+   control stay visible at any height. */
+.panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* Don't chain an over-scroll through to the page/map behind the panel. */
+  overscroll-behavior: contain;
+  /* Pull the scroll edge out into the panel's right padding, so the scrollbar
+     sits near the border instead of on top of the group dividers. */
+  margin-right: -10px;
+  padding-right: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline) transparent;
+  animation: panel-reveal 220ms ease-out both;
+}
+
+/* Opacity only — nothing here can shift layout as the body reappears. */
+@keyframes panel-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.panel__collapse {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  /* Optical alignment: sit the glyph in the panel's top-right corner. */
+  margin: -3px -6px 0 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: color 160ms ease, background-color 160ms ease;
+}
+.panel.is-collapsed .panel__collapse {
+  width: 32px;
+  height: 32px;
+  margin: 0;
+}
+.panel__collapse:hover {
+  color: var(--ink);
+  background: var(--hairline);
+}
+.panel__collapse:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+
+/* A chevron drawn from two borders: points LEFT to collapse, RIGHT to reopen. */
+.panel__collapse-icon {
+  width: 7px;
+  height: 7px;
+  border-top: 1.6px solid currentColor;
+  border-right: 1.6px solid currentColor;
+  transform: translateX(1px) rotate(-135deg);
+  transition: transform 240ms ease;
+}
+.panel.is-collapsed .panel__collapse-icon {
+  transform: translateX(-1px) rotate(45deg);
 }
 
 .panel__wordmark {
@@ -585,6 +684,11 @@ body.is-ready .maplibregl-map {
     right: var(--panel-gap);
     padding: 18px 18px 16px;
   }
+  /* Collapsed, the tab hugs the left corner rather than stretching full width. */
+  .panel.is-collapsed {
+    right: auto;
+    padding: 6px;
+  }
   .panel__wordmark {
     font-size: 19px;
   }
@@ -595,7 +699,12 @@ body.is-ready .maplibregl-map {
   .maplibregl-map,
   .toggle__track,
   .toggle__thumb,
-  .info-card {
+  .info-card,
+  .panel__collapse,
+  .panel__collapse-icon {
     transition: none !important;
+  }
+  .panel__body {
+    animation: none !important;
   }
 }
