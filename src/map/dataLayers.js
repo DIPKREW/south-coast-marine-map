@@ -794,21 +794,82 @@ function addMarineMarkersLayer(map, layer, beforeId, { card, clearHover, addQuer
   const checked = new Set();
   const pending = new Map(); // key → in-flight fetch, so a double-click can't double-fetch
 
+  /*
+   * WHERE EACH SPECIES SITS relative to its square's true point.
+   *
+   * Bearing steps 140° per species and the radius alternates between two rings.
+   * 140° is 7/18 of a turn and 7 is coprime with 18, so the eighteen bearings are
+   * a permutation of eighteen evenly-spaced slots: no two species ever share one,
+   * and consecutive species — which is what a taxonomic group is — land 140°
+   * apart, nearly opposite. The alternating radius then separates the pairs that
+   * the bearing alone leaves close.
+   *
+   * Measured against the alternatives, as multiples of the ring radius R:
+   *
+   *                            worst of all 153 pairs   worst within one group
+   *   golden angle 137.5°            0.216 R                  0.559 R
+   *   two rings, 40° steps           0.410 R                  0.410 R
+   *   this (140° + alt radius)       0.479 R                  0.639 R
+   *
+   * The golden angle was the obvious first choice and it is the worst of the
+   * three. It spreads CONSECUTIVE indices beautifully and says nothing about
+   * distant ones: grey seal (0) and common cuttlefish (13) came out 12.4° apart,
+   * which drew them 0.8 px apart at the corridor view and 2.2 px inside Plymouth
+   * Sound. Both are commonly ticked. The second column matters as much as the
+   * first, because someone comparing two dolphins is likelier than someone
+   * comparing a dolphin with a squid.
+   */
   const OFFSET_PX = 3.6;
-  const offsetFor = (i) => {
-    // Golden-angle spread so neighbouring species in the list don't land on the
-    // same bearing, and the whole set stays evenly distributed round the point.
-    const a = (i * 137.508 * Math.PI) / 180;
-    return [
-      Math.round(Math.cos(a) * OFFSET_PX * 100) / 100,
-      Math.round(Math.sin(a) * OFFSET_PX * 100) / 100,
-    ];
+  const bearing = (i) => {
+    const a = (i * 140 * Math.PI) / 180;
+    const r = i % 2 ? 1.25 : 0.7;
+    return [Math.cos(a) * r, Math.sin(a) * r];
+  };
+  const offsetAt = (i, scale) => {
+    const [cx, cy] = bearing(i);
+    return [Math.round(cx * OFFSET_PX * scale * 100) / 100, Math.round(cy * OFFSET_PX * scale * 100) / 100];
   };
 
-  // Radius grows with the log of the record count in that square — a square with
-  // 400 records should read as busier than one with 4, without swamping the map.
-  const radius = ['interpolate', ['linear'], ['log10', ['max', ['get', 'n'], 1]], 0, 2.6, 1, 3.6, 2, 4.8, 3.5, 6.4];
+  /*
+   * SIZE BY RECORD COUNT × ZOOM.
+   *
+   * Count alone (what this used to be) is fixed in pixels, so a dot that reads
+   * fine across the whole corridor is a speck once you are inside Plymouth Sound
+   * or the Fal — too small to see, let alone hover. Zoom alone would throw away
+   * the "this square is busier than that one" signal. So the two multiply: the
+   * count curve sets the relative size, the zoom curve sets the overall scale.
+   */
+  const countRadius = ['interpolate', ['linear'], ['log10', ['max', ['get', 'n'], 1]], 0, 2.6, 1, 3.6, 2, 4.8, 3.5, 6.4];
   const hb = ['boolean', ['feature-state', 'hover'], false];
+
+  // ~1× at the opening corridor view (z7.1), ~2× by the time you are in a bay.
+  //
+  // A zoom expression has to be the OUTERMOST thing in a paint property — it
+  // cannot be a term inside an arithmetic expression — so the multiplication is
+  // pushed down into each stop's output rather than wrapped round the whole
+  // curve. Same shape as the `lineW` helper the waterways layer uses.
+  const ZOOM_STOPS = [[6.5, 0.95], [7, 1], [10, 1.4], [13, 2], [16, 2.4]];
+  const byZoom = (perStop) => [
+    'interpolate', ['linear'], ['zoom'],
+    ...ZOOM_STOPS.flatMap(([z, k]) => [z, perStop(k)]),
+  ];
+
+  /*
+   * The per-species offset has to grow too, and by MORE than the radius.
+   *
+   * circle-translate is in screen pixels, so a fixed offset would stay 3.6 px
+   * while the dots doubled — the separation that reads clearly at the corridor
+   * view would close up exactly when you zoom in to inspect a cluster. Growing it
+   * faster than the radius (×3.6 against the radius's ×2 over z7→z13) means
+   * zooming in actively pulls a crowded square apart, which is what zooming in is
+   * for, while the corridor view stays compact enough that a cluster still reads
+   * as one place.
+   */
+  const OFFSET_STOPS = [[6.5, 0.95], [7, 1], [10, 2], [13, 3.6], [16, 4.4]];
+  const translateFor = (i) => [
+    'interpolate', ['linear'], ['zoom'],
+    ...OFFSET_STOPS.flatMap(([z, k]) => [z, ['literal', offsetAt(i, k)]]),
+  ];
 
   const ensure = async (sp, index) => {
     if (built.has(sp.key)) return built.get(sp.key);
@@ -826,10 +887,10 @@ function addMarineMarkersLayer(map, layer, beforeId, { card, clearHover, addQuer
           layout: { visibility: 'visible' },
           paint: {
             'circle-color': palette[sp.colorVar] ?? palette['marine-species'],
-            'circle-radius': ['*', radius, ['case', hb, 1.45, 1]],
+            'circle-radius': byZoom((k) => ['*', countRadius, k, ['case', hb, 1.45, 1]]),
             'circle-stroke-color': palette.surface,
-            'circle-stroke-width': hoverExpr(1.4, 0.7),
-            'circle-translate': offsetFor(index),
+            'circle-stroke-width': byZoom((k) => ['case', hb, 1.4 * k, 0.7 * k]),
+            'circle-translate': translateFor(index),
             'circle-opacity': 0.95,
             'circle-stroke-opacity': 0.9,
             'circle-radius-transition': { duration: 150 },
