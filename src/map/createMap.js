@@ -58,7 +58,6 @@ const DORSET_LAND_ATTRIBUTION = [
   'DWT reserves: list © <a href="https://www.dorsetwildlifetrust.org.uk/nature-reserves" target="_blank" rel="noopener">Dorset Wildlife Trust</a>, boundaries © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
   'ALC © Natural England (ADAS &amp; Defra)',
   'Crop Map of England © <a href="https://www.gov.uk/government/organisations/rural-payments-agency" target="_blank" rel="noopener">Rural Payments Agency</a> / <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">OGL</a>',
-  'Species data: <a href="https://nbnatlas.org" target="_blank" rel="noopener">NBN Atlas</a> contributors',
 ];
 
 const ATTRIBUTION = [
@@ -69,6 +68,10 @@ const ATTRIBUTION = [
   'Coastal erosion © <a href="https://www.gov.uk/government/organisations/environment-agency" target="_blank" rel="noopener">Environment Agency</a>, OGL',
   'Storm overflow annual returns (EDM) &amp; WFD water body status © <a href="https://environment.data.gov.uk" target="_blank" rel="noopener">Environment Agency</a>, OGL',
   'Live discharge status © the water companies via <a href="https://www.streamwaterdata.co.uk" target="_blank" rel="noopener">Stream</a> / <a href="https://www.water.org.uk" target="_blank" rel="noopener">Water UK</a>',
+  'Seabed habitats: UKSeaMap © <a href="https://jncc.gov.uk" target="_blank" rel="noopener">JNCC</a> via <a href="https://emodnet.ec.europa.eu/en/seabed-habitats" target="_blank" rel="noopener">EMODnet Seabed Habitats</a>',
+  // NBN is credited unconditionally: the MARINE species layer uses it and is not
+  // governed by SHOW_DORSET_LAND_LAYERS, unlike the land species grid.
+  'Species records: <a href="https://nbnatlas.org" target="_blank" rel="noopener">NBN Atlas</a> contributors',
 ].join(' · ');
 
 export function createMap(container) {

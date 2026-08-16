@@ -41,7 +41,7 @@ export function applyDataLayers(map, layers) {
   const registry = []; // { layer, queryId, sourceId, sourceLayer, priority } per hit-test layer
   let beforeId; // insertion anchor — keeps earlier layers on top
 
-  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, wfd: addWfdLayer };
+  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, wfd: addWfdLayer, seabed: addSeabedLayer };
   for (const layer of layers) {
     const add = adders[layer.kind] || addPolygonLayer;
     // A layer that starts hidden is DEFERRED: neither its source nor its layers
@@ -424,13 +424,17 @@ function addSpeciesGridLayer(map, layer, beforeId, { card, clearHover }) {
   // Base opacity rises with the (log of) record count; hover lifts it.
   const byCount = ['interpolate', ['linear'], ['log10', ['max', ['get', 'n'], 1]], 0, 0.3, 1, 0.4, 2, 0.5, 3.5, 0.6];
   const fillOpacity = ['case', hb, layer.paint.fillOpacityHover, byCount];
+  // Colour is per-layer so the LAND and MARINE species grids can share this
+  // renderer without sharing a palette; both default to the land heather.
+  const fillColor = layer.paint.color ?? palette.species;
+  const lineColor = layer.paint.colorStrong ?? palette['species-strong'];
 
   map.addLayer(
     {
       id: fillId, type: 'fill', source: sourceId, filter: filterFor(species),
       layout: { visibility: startVisible ? 'visible' : 'none' },
       paint: {
-        'fill-color': palette.species,
+        'fill-color': fillColor,
         'fill-opacity': startVisible ? fillOpacity : 0,
         'fill-opacity-transition': { duration: FADE_MS }, 'fill-antialias': true,
       },
@@ -442,7 +446,7 @@ function addSpeciesGridLayer(map, layer, beforeId, { card, clearHover }) {
       id: lineId, type: 'line', source: sourceId, filter: filterFor(species),
       layout: { visibility: startVisible ? 'visible' : 'none' },
       paint: {
-        'line-color': palette['species-strong'], 'line-width': 0.6,
+        'line-color': lineColor, 'line-width': 0.6,
         'line-opacity': startVisible ? 0.4 : 0, 'line-opacity-transition': { duration: FADE_MS },
       },
     },
@@ -754,6 +758,48 @@ function addWfdLayer(map, layer, beforeId, { card, clearHover }) {
   // A broad context wash — below the erosion strips and the marine outlines, so
   // any more specific feature at the same spot still wins the card.
   return { controller, queryLayers: [{ id: fillId, priority: 12 }], sourceId, bottomId: fillId };
+}
+
+// SEABED HABITATS (JNCC UKSeaMap). A continuous wash over the whole sea floor,
+// coloured by substrate group. Deliberately NO outline: the source is a modelled
+// surface with tens of thousands of boundaries between neighbouring classes, and
+// drawing them would imply an edge precision the model does not have — and turn
+// the sea into a net. The colour match is built from the paint's own `colors`
+// map, so adding a group is a config change rather than a code change.
+function addSeabedLayer(map, layer, beforeId, { card, clearHover }) {
+  const sourceId = `${layer.id}-source`;
+  const fillId = `${layer.id}-fill`;
+  const c = layer.paint.colors;
+  const startVisible = layer.defaultVisible !== false;
+  const fillOpacityExpr = hoverExpr(layer.paint.fillOpacityHover, layer.paint.fillOpacity);
+
+  map.addSource(sourceId, { type: 'geojson', data: layer.data, generateId: true });
+
+  const entries = Object.entries(c).filter(([k]) => k !== 'unknown');
+  const colorExpr = ['match', ['get', layer.field], ...entries.flatMap(([k, v]) => [k, v]), c.unknown];
+
+  map.addLayer(
+    {
+      id: fillId, type: 'fill', source: sourceId,
+      layout: { visibility: startVisible ? 'visible' : 'none' },
+      paint: {
+        'fill-color': colorExpr,
+        'fill-opacity': startVisible ? fillOpacityExpr : 0,
+        'fill-opacity-transition': { duration: FADE_MS }, 'fill-antialias': true,
+      },
+    },
+    beforeId,
+  );
+
+  const controller = makeController(map, {
+    layerIds: [fillId], sourceId, startVisible, card, clearHover,
+    onShow: () => map.setPaintProperty(fillId, 'fill-opacity', fillOpacityExpr),
+    onHide: () => map.setPaintProperty(fillId, 'fill-opacity', 0),
+  });
+
+  // The lowest hover priority of any marine layer — this is the ground the
+  // others sit on, so anything more specific at the same point wins the card.
+  return { controller, queryLayers: [{ id: fillId, priority: 8 }], sourceId, bottomId: fillId };
 }
 
 function addPointLayer(map, layer, beforeId, { card, clearHover }) {

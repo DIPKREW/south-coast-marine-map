@@ -26,6 +26,11 @@ counties.
   ecological classification of the 59 coastal and estuarine water bodies on this
   coast (Cycle 4, 2025). Chemical status is on the card but not mapped, because
   every one of them fails it. **Off by default.**
+- **Seabed habitats** — a cool stone palette — what the sea floor is made of,
+  from JNCC's UKSeaMap. A broad-scale **predictive** model, not survey. **Off by
+  default.**
+- **Marine species** — a magenta grid — NBN Atlas records for eight flagship
+  marine species, by grid square, one species at a time. **Off by default.**
 - **Storm overflows** (a subgroup, two layers):
   - **Annual spill data** — a pale rose→deep wine ramp — how many times each of
     1,903 storm overflows discharged in 2025 and for how long, from the
@@ -89,6 +94,8 @@ npm run data:ncerm       # rebuild coastal erosion risk from the EA NCERM (WFS)
 npm run data:catchment   # rebuild the hydrological (catchment) boundary — run BEFORE the two below
 npm run data:storm-overflows # rebuild the EA EDM storm overflow annual return (latest year)
 npm run data:wfd         # rebuild WFD coastal & transitional water body classifications
+npm run data:seabed      # rebuild seabed habitats (JNCC UKSeaMap via EMODnet WFS)
+npm run data:marine-species # rebuild the marine species grid from the NBN Atlas
 ```
 
 ## How it looks the way it does
@@ -686,6 +693,76 @@ Beachy Head cutoff.
   Explorer** page (the WFD id in the data is the same key the EA's site uses, so
   the link is exact rather than a search).
 
+### Seabed habitats — a modelled map, and labelled as one
+
+`npm run data:seabed` (`scripts/fetch-seabed.mjs`) pulls
+`emodnet_open:ukseamap_latest_habitats` from the **EMODnet Seabed Habitats WFS** —
+JNCC's own UKSeaMap, the UK part of the Atlas of Seabed Habitats. No key, no
+registration. **51,483 polygons** in the corridor.
+
+It is the **predictive** full-coverage product: modelled from bathymetry,
+substrate, light and energy, not a record of anywhere anyone has looked. EMODnet
+does publish survey data, but only as ~1,200 separate per-survey layers in its
+map library — there is no single combined "predictive + surveyed" polygon layer
+to query. So the source carries no modelled-vs-surveyed flag, because all of it
+is modelled, and the About text says so.
+
+> **A rejected source, worth recording.** The "UK SeaMap 2018" ArcGIS feature
+> service that a search turns up first
+> (`services5.arcgis.com/ZWXz0JpKJ0L63uwv`) is a third-party re-host and a
+> **Cornwall-only extract** — declared extent EPSG:27700 58k–264k E, and **zero
+> features east of -3.5°E**. It also disagreed with EMODnet on EUNIS code where
+> both had coverage. Taking it at face value would have shipped a map with
+> habitat off Cornwall and blank sea from Dorset eastward.
+
+**The grouping — proposed, not final.** The model separates **25 EUNIS classes**
+in the corridor. Colouring 25 fine-grained codes would be unreadable, so
+`groupFor()` maps the EUNIS prefix (which is what carries the substrate) into
+five drawn groups. By area of the 35,900 km² mapped: coarse sediment 73%, sand
+15%, rock and reef 6%, mixed sediment 5%, mud 1.5%. The hover card still names
+the exact EUNIS class, so nothing is lost — only the colour is coarsened. Rock is
+deliberately not split by depth zone (that is not a substrate difference), and
+seagrass/biogenic reef share one class — moot here, since **neither appears in
+the corridor at all**, which is a limit of a broad-scale model rather than
+evidence of absence.
+
+Polygons are **dissolved by EUNIS class** before publishing — that removes the
+internal edges between tens of thousands of same-class neighbours and takes
+51,483 → 38 features at 2.9 MB. Drawn with **no outline**: the class boundaries
+are modelled, and drawing them would imply an edge precision the model does not
+have.
+
+### Marine species — the land species layer, pointed out to sea
+
+`npm run data:marine-species` (`scripts/build-marine-species.mjs`). This is
+deliberately the *same machinery* as the Dorset land species grid: both import
+`scripts/lib/osgrid.mjs`, so the grid-reference parsing, the resolution-honesty
+rule and the NBN facet queries are one implementation. What changes is the
+species list and the area.
+
+**No individual record coordinates are stored**, exactly as on land — the build
+facets on NBN's own pre-computed grid-reference fields, so the output is
+"recorded in this square, this many times" and nothing finer.
+
+Eight flagship species, **every one checked against NBN for this corridor before
+inclusion** (record counts and cell counts are reported on every run):
+
+| Species | Records | Grid | Cells |
+|---|---|---|---|
+| Grey seal | 11,921 | 10 km | 132 |
+| Common dolphin | 10,676 | 10 km | 133 |
+| Harbour porpoise | 9,651 | 10 km | 124 |
+| Basking shark | 7,446 | 2 km | 886 |
+| Bottlenose dolphin | 1,654 | 10 km | 107 |
+| Atlantic bluefin tuna | 1,575 | 10 km | 59 |
+| Common cuttlefish | 1,202 | 2 km | 438 |
+| Spiny seahorse | 32 | 10 km | 9 |
+
+The data-gap caveat is worded consistently with the land layer, plus the point
+that matters more at sea: records cluster on ferry routes, survey transects, dive
+sites and the headlands watchers stand on, so a blank square much more often
+means nobody was looking than that nothing was there.
+
 ### Collapsible panel
 
 The panel collapses to a small chevron tab in the same top-left corner, so it
@@ -768,6 +845,7 @@ src/
     infoCard.js             the on-brand hover info card
 scripts/lib/dorset.mjs      shared Dorset bbox + LNRS clip-mask loader
 scripts/lib/southcoast.mjs  shared project bbox + ArcGIS paging/count/rounding helpers
+scripts/lib/osgrid.mjs      OS grid-ref → polygon + NBN facet queries, shared by BOTH species layers
 scripts/lib/geo.mjs         geodesic area + point-in-polygon + haversine (dependency-free)
 scripts/dorset-lnrs-area.geojson  the Dorset LNRS boundary, the shared clip mask
 scripts/fetch-sssi.mjs      page + clip + simplify the SSSI GeoJSON
@@ -785,6 +863,8 @@ scripts/build-ncerm.mjs     EA NCERM WFS → band recession distance → coastal
 scripts/fetch-storm-overflows.mjs  EA EDM annual return (latest year) → spill count + duration per overflow
 scripts/fetch-wfd-coastal.mjs      EA WFD Cycle 4 → coastal/estuarine water bodies + ecological & chemical class
 scripts/build-catchment-boundary.mjs  EA WFD catchments → the hydrological boundary (watersheds, not a bbox)
+scripts/fetch-seabed.mjs           EMODnet WFS → JNCC UKSeaMap → group by EUNIS → dissolve
+scripts/build-marine-species.mjs   NBN Atlas facet → OS-grid parse → marine species record grid
 public/data/sssi.geojson    bundled SSSI polygons (committed)
 public/data/hona.geojson    bundled opportunity areas (committed)
 public/data/dwt-reserves.geojson  bundled DWT reserves from OSM (committed)
@@ -801,6 +881,8 @@ public/data/storm-overflows.geojson  EDM annual return — spills + duration per
 public/data/storm-overflow-names.json  id → site-name lookup, joined by the LIVE layer (committed)
 public/data/wfd-coastal.geojson  WFD coastal & transitional water bodies + classification (committed)
 public/data/catchment-boundary.geojson  the drainage boundary the storm overflow layers filter against
+public/data/seabed.geojson  seabed habitats, dissolved by EUNIS class (committed)
+public/data/marine-species-grid.geojson  marine species grid — cells only, no coordinates
 ```
 
 ## Adding a layer (built for growth)

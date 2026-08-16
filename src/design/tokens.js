@@ -93,6 +93,28 @@ export const palette = {
   'wfd-poor': '#B6A98F', // Poor
   'wfd-bad': '#9A8468', // Bad — flat dun
   'wfd-unknown': '#D6D0C2', // not classified — neutral, recedes
+  // Seabed habitats (JNCC UKSeaMap) — a COOL STONE family: slate, lilac-grey and
+  // olive, reading as materials rather than as a ranked scale, because these are
+  // different substrates and not more-or-less of anything. Kept cool and
+  // desaturated so it works as the bottom-most wash under everything else, and
+  // so it cannot be read as the warm erosion ramp or the crimson spill ramp.
+  'seabed-rock': '#6B6478', // rock & reef — hardest, darkest
+  'seabed-coarse': '#9A93A3', // coarse sediment — gravel, shell, pebble
+  'seabed-mixed': '#7E8798', // mixed sediment
+  'seabed-sand': '#C3BCA8', // sand — pale cool stone, not the warm erosion sand
+  'seabed-mud': '#6F7668', // mud — olive-grey, the finest
+  'seabed-biogenic': '#7E9A86', // seagrass / biogenic reef — living structure
+  'seabed-intertidal': '#B0A6B4', // littoral rock & sediment
+  'seabed-unknown': '#CBC5BC', // unclassified — recedes
+  // Marine species (NBN Atlas) — a MAGENTA-ROSE. It keeps the "species = purple
+  // family" idea of the land layer's heather (#8A739E), but pushed hot and
+  // saturated because this grid is drawn OVER the seabed wash, and the first
+  // attempt (a deep indigo) sat in the same cool violet family as the seabed
+  // slates — at a glance the cells just read as darker seabed. Against grey-
+  // lilac it now reads unmistakably as a separate layer, and it stays clear of
+  // the spill ramp's darker wine reds.
+  'marine-species': '#B23A82', // grid fill
+  'marine-species-strong': '#7E2459', // denser cells / hover / outline
 };
 
 export const fonts = {

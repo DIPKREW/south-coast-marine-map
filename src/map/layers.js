@@ -139,6 +139,38 @@ const WFD_ECO_NOTE = {
 // on the same WFD id carried in the data, so the link is exact, not a search.
 const CDE = 'https://environment.data.gov.uk/catchment-planning/WaterBody/';
 
+// ---- Seabed + marine species helpers ----
+
+// Seabed substrate groups → the label shown on the card and in the legend. The
+// grouping itself (EUNIS code → group) is done at build time; see
+// scripts/fetch-seabed.mjs, where the mapping is written out and reasoned.
+const SEABED_LABEL = {
+  rock: 'Rock & reef',
+  coarse: 'Coarse sediment',
+  mixed: 'Mixed sediment',
+  sand: 'Sand',
+  mud: 'Mud',
+  biogenic: 'Seagrass & biogenic reef',
+  intertidal: 'Intertidal rock & sediment',
+  sediment: 'Sediment (undifferentiated)',
+  unknown: 'Unclassified',
+};
+
+// The curated marine flagship list. Every one was checked against NBN for this
+// corridor before it went in — see scripts/build-marine-species.mjs, which
+// reports live record and cell counts on every run.
+const MARINE_SPECIES = [
+  { key: 'greyseal', common: 'Grey seal', sci: 'Halichoerus grypus' },
+  { key: 'commondolphin', common: 'Common dolphin', sci: 'Delphinus delphis' },
+  { key: 'porpoise', common: 'Harbour porpoise', sci: 'Phocoena phocoena' },
+  { key: 'bottlenose', common: 'Bottlenose dolphin', sci: 'Tursiops truncatus' },
+  { key: 'baskingshark', common: 'Basking shark', sci: 'Cetorhinus maximus' },
+  { key: 'bluefin', common: 'Atlantic bluefin tuna', sci: 'Thunnus thynnus' },
+  { key: 'seahorse', common: 'Spiny seahorse', sci: 'Hippocampus guttulatus' },
+  { key: 'cuttlefish', common: 'Common cuttlefish', sci: 'Sepia officinalis' },
+];
+const MARINE_SPECIES_BY_KEY = new Map(MARINE_SPECIES.map((s) => [s.key, s]));
+
 // The full registry — every layer, including the dormant Dorset land layers.
 // Consumers import the filtered `dataLayers` below, not this.
 const allDataLayers = [
@@ -345,6 +377,48 @@ const allDataLayers = [
     }),
   },
   {
+    id: 'marine-species',
+    label: 'Marine species',
+    description: 'Recorded sightings — see About for data-gap caveat',
+    group: 'At sea',
+    // The same grid renderer as the Dorset land species layer, on the same
+    // NBN facet data, in a different palette — one species at a time via the
+    // panel's selector. Default OFF, lazy-loaded.
+    kind: 'speciesgrid',
+    data: `${base}data/marine-species-grid.geojson`,
+    field: 'sp',
+    species: MARINE_SPECIES,
+    defaultSpecies: 'greyseal',
+    accentVar: 'marine-species',
+    defaultVisible: false,
+    paint: {
+      color: palette['marine-species'],
+      colorStrong: palette['marine-species-strong'],
+      fillOpacity: 0.45,
+      fillOpacityHover: 0.78,
+    },
+    legend: [
+      { label: 'Recorded here (grid square)', colorVar: 'marine-species' },
+      { label: 'More records — slightly stronger', colorVar: 'marine-species-strong' },
+    ],
+    about: {
+      title: 'About marine species',
+      body: [
+        "These are records of eight flagship marine species along this coast, drawn from the NBN Atlas. They're shown by grid square, not exact location — both because the data is recorded at coarse resolution and because sensitive species are deliberately blurred to protect them. A shaded square means the species has been recorded in that area, not that it's only there.",
+        'At sea that last point carries more weight than on land. Records cluster where people go: ferry routes, survey transects, dive sites, and the headlands watchers stand on. A blank square much more often means nobody was looking than that nothing was there.',
+        'The seals, dolphins, porpoise and tuna here are recorded almost entirely at 10 km resolution, so their squares are coarse by nature rather than by choice; basking shark and cuttlefish support a 2 km grid. The spiny seahorse is protected and its records are deliberately blurred — 9 squares from 32 records.',
+      ],
+    },
+    card: (p) => {
+      const s = MARINE_SPECIES_BY_KEY.get(p.sp);
+      return {
+        title: s ? `${s.common} (${s.sci})` : 'Marine species',
+        subtitle: 'recorded in this area · NBN Atlas',
+        meta: p.n != null ? `${plural(p.n, 'record')} · ${p.res / 1000} km square` : null,
+      };
+    },
+  },
+  {
     id: 'marine',
     label: 'Marine protected areas',
     description: 'MCZs, marine SACs & SPAs',
@@ -457,6 +531,53 @@ const allDataLayers = [
       meta: [p.eco ? `Ecological: ${p.eco}` : null, p.chem ? `Chemical: ${p.chem}` : null].filter(Boolean).join(' · ') || null,
       note: [WFD_ECO_NOTE[p.eco], p.year ? `${p.year} classification` : null].filter(Boolean).join(' · ') || null,
       link: p.id ? { href: CDE + p.id, label: 'Catchment Data Explorer ↗' } : null,
+    }),
+  },
+  {
+    id: 'seabed',
+    label: 'Seabed habitats',
+    description: 'What the sea floor is made of — modelled',
+    group: 'At sea',
+    // The bottom-most marine layer: a continuous wash over the whole sea floor.
+    // LAST of the "At sea" layers in this array so everything else draws on top
+    // of it. Default OFF, lazy-loaded.
+    kind: 'seabed',
+    data: `${base}data/seabed.geojson`,
+    field: 'grp',
+    accentVar: 'seabed-coarse',
+    defaultVisible: false,
+    paint: {
+      colors: {
+        rock: palette['seabed-rock'], coarse: palette['seabed-coarse'], mixed: palette['seabed-mixed'],
+        sand: palette['seabed-sand'], mud: palette['seabed-mud'], biogenic: palette['seabed-biogenic'],
+        intertidal: palette['seabed-intertidal'], sediment: palette['seabed-unknown'],
+        unknown: palette['seabed-unknown'],
+      },
+      fillOpacity: 0.55,
+      fillOpacityHover: 0.75,
+    },
+    // Only the groups that actually occur in this corridor are listed, in
+    // descending share of mapped seabed area.
+    legend: [
+      { label: 'Coarse sediment — 73%', colorVar: 'seabed-coarse' },
+      { label: 'Sand — 15%', colorVar: 'seabed-sand' },
+      { label: 'Rock & reef — 6%', colorVar: 'seabed-rock' },
+      { label: 'Mixed sediment — 5%', colorVar: 'seabed-mixed' },
+      { label: 'Mud — 1.5%', colorVar: 'seabed-mud' },
+    ],
+    about: {
+      title: 'About seabed habitats',
+      body: [
+        "What the sea floor is made of, from JNCC's UKSeaMap — the UK part of the Atlas of Seabed Habitats. It is a broad-scale PREDICTIVE map: modelled from bathymetry, seabed substrate, light and wave and tidal energy, rather than a record of places anyone has been down and looked at. Read it as the best available estimate of the ground, not as survey. The source carries no per-area distinction between modelled and surveyed, because all of it is modelled.",
+        'The model separates 25 EUNIS habitat classes across this coastline. They are drawn in five groups — colouring 25 fine-grained codes separately would be unreadable — but the hover card still names the exact class. By area of the 35,900 km² mapped here, coarse sediment covers 73%, sand 15%, rock and reef 6%, mixed sediment 5% and mud 1.5%.',
+        'Neither seagrass nor biogenic reef appears as its own class in the corridor. That is a limit of a broad-scale model, which cannot resolve features that small, and not evidence that there are none — the seagrass of Studland Bay is a well-known example that this map does not show.',
+      ],
+    },
+    card: (p) => ({
+      title: SEABED_LABEL[p.grp] || 'Seabed habitat',
+      subtitle: p.name || null,
+      meta: [p.code ? `EUNIS ${p.code}` : null, p.zone].filter(Boolean).join(' · ') || null,
+      note: 'Predictive model (JNCC UKSeaMap), not survey',
     }),
   },
   {
@@ -600,7 +721,7 @@ const allPanelGroups = [
   // own assessment of the water, not a record of what was discharged into it.
   {
     label: 'At sea',
-    layerIds: ['marine', 'ncerm', 'wfd'],
+    layerIds: ['marine', 'ncerm', 'wfd', 'seabed', 'marine-species'],
     subgroups: [{ label: 'Storm overflows', layerIds: ['storm-annual', 'storm-live'] }],
   },
   { label: 'Water', layerIds: ['water'] },
