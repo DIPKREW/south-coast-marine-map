@@ -32,6 +32,11 @@ counties.
 - **Marine species** — NBN Atlas records for **18** marine species, as one dot
   per occupied grid square, placed in the sea rather than at the grid centre.
   Tick as many as you like from a grouped checklist. **Off by default.**
+- **Dredging & extraction** — olive-khaki and slate — MMO's marine licence
+  register (Sep 2025) for dredging, disposal and aggregate extraction, plus the
+  Cefas disposal grounds. **Off by default.**
+- **Beach litter** — **scaffolded, not built.** A greyed-out toggle marking a
+  real gap; see below. 
 - **Recreational pressure** — a mauve→magenta ramp — recreational vessel density
   from the MMO's 2 km AIS grid. **The data is from 2015** and counts only
   AIS-carrying boats. **Off by default.**
@@ -104,6 +109,7 @@ npm run data:wfd         # rebuild WFD coastal & transitional water body classif
 npm run data:seabed      # rebuild seabed habitats (JNCC UKSeaMap via EMODnet WFS)
 npm run data:marine-species # rebuild the marine species grid from the NBN Atlas
 npm run data:recreational # rebuild recreational vessel density (MMO 2 km AIS grid, 2015)
+npm run data:licensing   # rebuild MMO dredging / disposal / aggregate licences
 ```
 
 ## How it looks the way it does
@@ -784,6 +790,76 @@ internal edges between tens of thousands of same-class neighbours and takes
 are modelled, and drawing them would imply an edge precision the model does not
 have.
 
+### Dredging & extraction — permission, not activity
+
+`npm run data:licensing` (`scripts/fetch-marine-licensing.mjs`) reads MMO's own
+ArcGIS service `S4_Marine_Licensable_Activities_Sep25` — a **September 2025**
+extract, so current licensing rather than the "Legacy" licence layers data.gov.uk
+surfaces first. OGL, no key. **422 features in the corridor, 342 KB.**
+
+MMO splits one licence register across **three geometry types**, so all three are
+queried rather than assuming polygons. In this corridor the dredging/disposal
+subset happens to be entirely polygons — the point and line layers carry other
+project types — but the script fetches and reports all three so a future rebuild
+cannot silently drop them.
+
+| Category | Features |
+|---|---|
+| Disposal of dredged material | 148 |
+| Navigational dredging (capital + maintenance) | 116 |
+| Disposal grounds (Cefas) | 103 |
+| Aggregate extraction | 29 |
+| Other / clean-up dredging | 26 |
+
+**"Status" is the thing not to assume.** `CaseStatus` is *not* an active/historic
+flag — in this corridor it only reads COMPLETED or VARIATION_REQUESTED, which
+describe how far the *application* got through MMO's case system. A completed
+case is a granted licence, not a finished activity. The real currency signal is
+`LEndDate`, so that is what the layer uses: **263 in force, 56 expired**, plus
+**42 open / 59 closed / 2 disused** disposal grounds, which do carry a genuine
+state for the ground itself. Finished parcels are drawn fainter than live ones.
+
+Read "in force" carefully: MMO records open-ended consents with placeholder end
+dates decades out (2081, 2136), so a solid parcel means the permission has not
+expired, not that anything is being dredged there this week. And a licence is
+permission to act, not a record of acting — nothing here says how much was
+dredged, how often, or whether it happened.
+
+Every one of the 422 names its operator.
+
+*Same envelope trap as the vessel density layer:* the service stores geometry in
+a projected CRS, so the reprojected query envelope over-covers — the raw result
+included The Garden Bridge in London and Hinkley Point C in the Bristol Channel.
+85 features were dropped by enforcing the rectangle on real geometry.
+
+### Beach litter — investigated, deliberately not built
+
+The toggle exists and is **greyed out**. That is the finding, not an oversight.
+
+The Marine Conservation Society's **Beachwatch** programme is the obvious source
+and its data does not meet the bar every other layer here meets:
+
+- **Nothing on data.gov.uk** — a search for "Beachwatch" returns no results at
+  all, and "beach litter" returns only Cefas overseas CLiP surveys.
+- **Nothing on ArcGIS Hub** — every "Beach Watch" hit is a US programme (Texas
+  GLO, California State Lands).
+- **No documented API or bulk download.** MCS publishes annual reports and an
+  interactive dashboard; neither offers an export. Their site returns HTTP 403 to
+  automated requests.
+- **The one official metadata record anywhere** — Natural Resources Wales,
+  `EXT_DS121864`, "Marine Conservation Society: Beachwatch data Wales (3rd Party
+  Data)" — states plainly: *"This dataset is wholly owned by Marine Conservation
+  Society. **This data is for internal use only.** … NRW may **NOT** publish or
+  disseminate it in its entirety."* It also describes Beachwatch as a
+  **non-spatial** dataset that NRW had to convert into a spatial layer for their
+  own internal use. And it is Wales-only.
+
+Scraping the dashboard or rebuilding figures from the annual PDFs would produce
+something that *looks* like the other layers and is not one, so it stays an
+honest, inert switch until a real feed exists. EEA's **Marine LitterWatch**
+(2010–2021, open, with services) is a different programme and a possible
+alternative, but its UK corridor coverage was not verified here.
+
 ### Recreational pressure — a decade-old picture of a partly-tracked fleet
 
 `npm run data:recreational` (`scripts/fetch-vessel-density.mjs`) reads the MMO's
@@ -990,6 +1066,7 @@ scripts/fetch-wfd-coastal.mjs      EA WFD Cycle 4 → coastal/estuarine water bo
 scripts/build-catchment-boundary.mjs  EA WFD catchments → the hydrological boundary (watersheds, not a bbox)
 scripts/fetch-seabed.mjs           EMODnet WFS → JNCC UKSeaMap → group by EUNIS → dissolve
 scripts/fetch-vessel-density.mjs   MMO 2 km AIS grid → recreational ship-type group only
+scripts/fetch-marine-licensing.mjs MMO licence register → dredging / disposal / aggregate + Cefas grounds
 scripts/build-marine-species.mjs   NBN Atlas facet → OS-grid parse → land-clip → one sea-placed marker file per species
 public/data/sssi.geojson    bundled SSSI polygons (committed)
 public/data/hona.geojson    bundled opportunity areas (committed)
@@ -1009,6 +1086,7 @@ public/data/wfd-coastal.geojson  WFD coastal & transitional water bodies + class
 public/data/catchment-boundary.geojson  the drainage boundary the storm overflow layers filter against
 public/data/seabed.geojson  seabed habitats, dissolved by EUNIS class (committed)
 public/data/recreational-pressure.geojson  MMO recreational vessel density, 2015 (committed)
+public/data/marine-licensing.geojson  MMO dredging/disposal/aggregate licences + Cefas grounds
 public/data/marine-species/<key>.geojson  one file per species — sea-placed markers, no record coordinates
 ```
 

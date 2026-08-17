@@ -114,6 +114,20 @@ export const palette = {
   // lilac it now reads unmistakably as a separate layer, and it stays clear of
   // the spill ramp's darker wine reds.
   /*
+   * LICENSED SEABED ACTIVITY (MMO marine licensing) — an INDUSTRIAL family:
+   * olive-khaki for extraction, slate greys for dredging, dark slate for the
+   * disposal grounds. Deliberately the least "natural" palette on the map,
+   * because this is the one layer about industry rather than ecology or water
+   * quality. PROPOSED, FLAGGED FOR REVIEW: the khakis sit nearer the WFD dun
+   * (#9A8468) and the seabed olive (#6F7668) than anything else here, though
+   * both of those are far less saturated.
+   */
+  'lic-aggregate': '#7C6E2A', // aggregate extraction — deep olive-khaki
+  'lic-navdredge': '#59606B', // navigational dredging — slate
+  'lic-otherdredge': '#828A94', // other / clean-up dredging — light slate
+  'lic-disposal': '#A08A3C', // disposal of dredged material — ochre khaki
+  'lic-site': '#3F4650', // Cefas disposal grounds — darkest slate
+  /*
    * RECREATIONAL PRESSURE (MMO vessel density) — a pale mauve → deep magenta-
    * purple ramp. PROPOSED, FLAGGED FOR REVIEW: this is the most crowded corner
    * of the palette. It is clear of the erosion ambers, the spill crimsons, the

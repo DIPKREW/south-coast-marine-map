@@ -41,7 +41,7 @@ export function applyDataLayers(map, layers) {
   const registry = []; // { layer, queryId, sourceId, sourceLayer, priority } per hit-test layer
   let beforeId; // insertion anchor — keeps earlier layers on top
 
-  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, wfd: addWfdLayer, seabed: addSeabedLayer, marinemarkers: addMarineMarkersLayer, density: addDensityLayer };
+  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, wfd: addWfdLayer, seabed: addSeabedLayer, marinemarkers: addMarineMarkersLayer, density: addDensityLayer, licensing: addLicensingLayer, todo: addTodoLayer };
   for (const layer of layers) {
     const add = adders[layer.kind] || addPolygonLayer;
     // A layer that starts hidden is DEFERRED: neither its source nor its layers
@@ -50,7 +50,9 @@ export function applyDataLayers(map, layers) {
     // their own, finer-grained deferral: croptiles must have its PMTiles archive
     // in hand before it can add a source at all, and marinemarkers defers per
     // SPECIES rather than per layer.
-    const SELF_DEFERRING = new Set(['croptiles', 'marinemarkers']);
+    // ('todo' has no data at all — deferring it would hide the onUnavailable
+    // signal the panel uses to grey the row out.)
+    const SELF_DEFERRING = new Set(['croptiles', 'marinemarkers', 'todo']);
     const defer = layer.defaultVisible === false && !SELF_DEFERRING.has(layer.kind);
     // A renderer that adds map layers over time (the marine species markers add
     // one source per species, the first time that species is ticked) registers
@@ -954,6 +956,96 @@ function addMarineMarkersLayer(map, layer, beforeId, { card, clearHover, addQuer
   };
 
   // No hit-test layers up front — each species registers its own on arrival.
+  return { controller, queryLayers: [], sourceId: `${layer.id}-source`, bottomId: beforeId };
+}
+
+// LICENSED SEABED ACTIVITY (MMO marine licensing). Discrete parcels rather than
+// a continuous surface, so unlike the seabed and density washes these get an
+// OUTLINE: a dredging licence has a real, drawn boundary and should read as a
+// bounded permission, not a gradient. Status drives opacity — a licence that has
+// expired, or a disposal ground that has closed, is drawn fainter than one still
+// in force, so the map distinguishes "permitted" from "was once permitted"
+// without needing a second colour dimension.
+function addLicensingLayer(map, layer, beforeId, { card, clearHover }) {
+  const sourceId = `${layer.id}-source`;
+  const fillId = `${layer.id}-fill`;
+  const lineId = `${layer.id}-line`;
+  const c = layer.paint.colors;
+  const startVisible = layer.defaultVisible !== false;
+
+  map.addSource(sourceId, { type: 'geojson', data: layer.data, generateId: true });
+
+  const entries = Object.entries(c).filter(([k]) => k !== 'unknown');
+  const colorExpr = ['match', ['get', layer.field], ...entries.flatMap(([k, v]) => [k, v]), c.unknown];
+  // Still in force vs finished. `current` and `open` are live; everything else
+  // (expired, closed, disused, unknown) recedes.
+  const live = ['match', ['get', 'status'], 'current', true, 'open', true, false];
+  const opacity = (a, b) => ['case', live, a, b];
+  const hb = ['boolean', ['feature-state', 'hover'], false];
+  const fillOpacityExpr = ['case', hb, opacity(layer.paint.fillOpacityHover, layer.paint.fillOpacityHover * 0.7), opacity(layer.paint.fillOpacity, layer.paint.fillOpacity * 0.45)];
+
+  map.addLayer(
+    {
+      id: fillId, type: 'fill', source: sourceId,
+      layout: { visibility: startVisible ? 'visible' : 'none' },
+      paint: {
+        'fill-color': colorExpr,
+        'fill-opacity': startVisible ? fillOpacityExpr : 0,
+        'fill-opacity-transition': { duration: FADE_MS }, 'fill-antialias': true,
+      },
+    },
+    beforeId,
+  );
+  map.addLayer(
+    {
+      id: lineId, type: 'line', source: sourceId,
+      layout: { visibility: startVisible ? 'visible' : 'none', 'line-join': 'round' },
+      paint: {
+        'line-color': colorExpr,
+        'line-width': hoverExpr(2.2, 0.9),
+        // Finished permissions get a dashed edge as well as a fainter fill.
+        'line-opacity': startVisible ? opacity(0.9, 0.5) : 0,
+        'line-opacity-transition': { duration: FADE_MS }, 'line-width-transition': { duration: 150 },
+      },
+    },
+    beforeId,
+  );
+
+  const controller = makeController(map, {
+    layerIds: [fillId, lineId], sourceId, startVisible, card, clearHover,
+    onShow: () => {
+      map.setPaintProperty(fillId, 'fill-opacity', fillOpacityExpr);
+      map.setPaintProperty(lineId, 'line-opacity', opacity(0.9, 0.5));
+    },
+    onHide: () => {
+      map.setPaintProperty(fillId, 'fill-opacity', 0);
+      map.setPaintProperty(lineId, 'line-opacity', 0);
+    },
+  });
+
+  // Above the broad washes AND above the watercourse lines (40). Dredging
+  // licences sit in estuaries and harbours, and the rivers layer is the one that
+  // defaults on — at 34 a licence parcel in the Itchen lost its own hover card to
+  // the river running through it.
+  return { controller, queryLayers: [{ id: fillId, priority: 42 }], sourceId, bottomId: fillId };
+}
+
+/**
+ * A SCAFFOLDED layer: a toggle that exists so the gap is visible, with no data
+ * behind it. Used where a dataset was investigated and genuinely could not be
+ * obtained to the standard the rest of the map meets — better an honest, inert
+ * switch than a layer quietly built from something weaker.
+ */
+function addTodoLayer(map, layer, beforeId) {
+  const controller = {
+    isVisible: () => false,
+    show: () => {},
+    hide: () => {},
+    toggle: () => {},
+    // The panel greys the row out through this, exactly as it does for a layer
+    // whose fetch failed.
+    onUnavailable: (cb) => cb(),
+  };
   return { controller, queryLayers: [], sourceId: `${layer.id}-source`, bottomId: beforeId };
 }
 

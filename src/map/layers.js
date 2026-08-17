@@ -141,6 +141,28 @@ const WFD_ECO_NOTE = {
 // on the same WFD id carried in the data, so the link is exact, not a search.
 const CDE = 'https://environment.data.gov.uk/catchment-planning/WaterBody/';
 
+// ---- Marine licensing helpers ----
+
+const LIC_LABEL = {
+  aggregate: 'Aggregate extraction',
+  navdredge: 'Navigational dredging',
+  otherdredge: 'Other dredging',
+  disposal: 'Disposal of dredged material',
+  site: 'Disposal ground',
+};
+
+// How the two different status vocabularies read on the card. Licences carry a
+// derived current/expired (from the licence end date); Cefas disposal grounds
+// carry a real open/closed/disused state for the ground itself.
+const LIC_STATUS = {
+  current: 'Licence in force',
+  expired: 'Licence expired',
+  open: 'Ground open',
+  closed: 'Ground closed',
+  disused: 'Ground disused',
+  unknown: 'Status not recorded',
+};
+
 // ---- Recreational pressure helpers ----
 
 // Density bands, from the real corridor distribution (median 0.83, max 807):
@@ -593,6 +615,76 @@ const allDataLayers = [
     }),
   },
   {
+    id: 'licensing',
+    label: 'Dredging & extraction',
+    description: 'Licensed seabed activity',
+    group: 'At sea',
+    // MMO's marine licence register (Sep 2025), filtered to dredging, disposal
+    // and aggregate extraction, plus the Cefas disposal grounds. Drawn as
+    // outlined parcels above the broad washes. Default OFF, lazy-loaded.
+    kind: 'licensing',
+    data: `${base}data/marine-licensing.geojson`,
+    field: 'cat',
+    accentVar: 'lic-aggregate',
+    defaultVisible: false,
+    paint: {
+      colors: {
+        aggregate: palette['lic-aggregate'], navdredge: palette['lic-navdredge'],
+        otherdredge: palette['lic-otherdredge'], disposal: palette['lic-disposal'],
+        site: palette['lic-site'], unknown: palette['lic-otherdredge'],
+      },
+      fillOpacity: 0.5,
+      fillOpacityHover: 0.72,
+    },
+    legend: [
+      { label: 'Aggregate extraction', colorVar: 'lic-aggregate' },
+      { label: 'Navigational dredging', colorVar: 'lic-navdredge' },
+      { label: 'Other dredging', colorVar: 'lic-otherdredge' },
+      { label: 'Disposal of dredged material', colorVar: 'lic-disposal' },
+      { label: 'Disposal grounds (Cefas)', colorVar: 'lic-site' },
+    ],
+    about: {
+      title: 'About dredging & extraction',
+      body: [
+        'Licensed seabed activity from the Marine Management Organisation\u2019s marine licence register, filtered to dredging, disposal of dredged material and aggregate extraction, together with the disposal grounds Cefas maintains. The extract is from September 2025, so this is current licensing rather than a historical snapshot \u2014 422 parcels in the mapped area, every one naming its operator.',
+        'Faded parcels have finished: a licence past its end date, or a disposal ground recorded as closed or disused. Solid ones are still in force \u2014 263 licences and 42 open grounds. Read \u201cin force\u201d carefully, though: MMO records open-ended consents with a placeholder end date decades away, so a solid parcel means the permission has not expired, not that anything is being dredged there this week.',
+        'A licence is permission to act, not a record of acting. Nothing here says how much was dredged, how often, or whether the work happened at all \u2014 only that it was allowed, where, and by whom. MMO\u2019s own case status field is about how far the application got through their system, not whether the activity is live, which is why it is not what colours this layer.',
+      ],
+    },
+    card: (p) => ({
+      title: LIC_LABEL[p.cat] || p.type || 'Licensed activity',
+      subtitle: LIC_STATUS[p.status] || null,
+      meta: p.org || null,
+      note:
+        [
+          p.title && p.title !== p.org ? p.title : null,
+          p.start || p.end ? `${p.start ?? '?'} \u2192 ${p.end ?? 'open-ended'}` : null,
+          p.ref,
+        ]
+          .filter(Boolean)
+          .join(' \u00b7 ') || null,
+    }),
+  },
+  {
+    id: 'beachlitter',
+    label: 'Beach litter',
+    description: 'No open dataset \u2014 see report',
+    group: 'At sea',
+    // SCAFFOLDED, NOT BUILT. The Marine Conservation Society's Beachwatch
+    // programme is the obvious source and its data is not obtainable to the
+    // standard every other layer here meets: no API, nothing on data.gov.uk or
+    // any open portal, and the one official metadata record for it (Natural
+    // Resources Wales, EXT_DS121864) states the dataset is "wholly owned by
+    // Marine Conservation Society. This data is for internal use only… NRW may
+    // NOT publish or disseminate it in its entirety." It is also described there
+    // as a NON-SPATIAL dataset that NRW had to convert to a spatial layer
+    // themselves. Scraping the public dashboard, or reconstructing figures from
+    // the annual PDFs, would produce something that looks like the other layers
+    // but is not, so this stays an honest, inert switch until a real feed exists.
+    kind: 'todo',
+    defaultVisible: false,
+  },
+  {
     id: 'recreational',
     label: 'Recreational pressure',
     description: 'Recreational vessel density, 2015',
@@ -824,7 +916,7 @@ const allPanelGroups = [
   // own assessment of the water, not a record of what was discharged into it.
   {
     label: 'At sea',
-    layerIds: ['marine', 'ncerm', 'wfd', 'recreational', 'seabed', 'marine-species'],
+    layerIds: ['marine', 'ncerm', 'wfd', 'licensing', 'recreational', 'seabed', 'marine-species', 'beachlitter'],
     subgroups: [{ label: 'Storm overflows', layerIds: ['storm-annual', 'storm-live'] }],
   },
   { label: 'Water', layerIds: ['water'] },
