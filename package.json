@@ -31,7 +31,8 @@
     "data:fisheries": "node scripts/fetch-fisheries.mjs",
     "data:sea-flood": "node scripts/fetch-sea-flood.mjs",
     "data:wrecks": "node scripts/fetch-wrecks.mjs",
-    "data:compound": "node scripts/build-compound-pressure.mjs"
+    "data:compound": "node scripts/build-compound-pressure.mjs",
+    "data:search": "node scripts/build-search-index.mjs"
   },
   "dependencies": {
     "maplibre-gl": "^4.7.1",

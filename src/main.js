@@ -8,6 +8,7 @@ import { dataLayers, panelGroups } from './map/layers.js';
 import { buildControlPanel } from './ui/controlPanel.js';
 import { buildDetailPanel } from './ui/detailPanel.js';
 import { readUrlState, applyUrlState, wireUrlState } from './ui/urlState.js';
+import { buildSearch } from './ui/search.js';
 
 // Palette → CSS custom properties, so CSS and the map style share one source.
 applyTokens();
@@ -49,7 +50,12 @@ map.on('load', () => {
   let panelHandle = null;
   const syncDetail = () => detail.sync({ collapsed: panelHandle?.isCollapsed() ?? false });
 
+  // Flying to a result moves the viewport, so the URL should follow — it goes
+  // through the same debounced moveend path as a manual pan, no special case.
+  const search = buildSearch({ map, onNavigate: () => bumpUrl() });
+
   const panel = buildControlPanel({
+    searchEl: search.el,
     layers: dataLayers,
     groups: panelGroups,
     controllers,

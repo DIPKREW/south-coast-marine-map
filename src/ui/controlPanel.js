@@ -22,7 +22,7 @@
  */
 import { el } from './dom.js';
 
-export function buildControlPanel({ layers, groups, controllers, wordmark, tagline, onChange, onCopyLink }) {
+export function buildControlPanel({ layers, groups, controllers, wordmark, tagline, onChange, onCopyLink, searchEl }) {
   const panel = el('section', 'panel', { role: 'region', 'aria-label': `${wordmark} controls` });
   const byId = new Map(layers.map((l) => [l.id, l]));
 
@@ -95,9 +95,22 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
   head.append(headText, actions);
   panel.appendChild(head);
 
+  /*
+   * Search sits directly under the masthead, ABOVE the scrolling body.
+   *
+   * Placed in the panel rather than floating over the map for two reasons: it is
+   * a control, and every other control on this map lives here; and the panel
+   * already sits outside the map container, so typing in it cannot trip the
+   * map-interaction auto-collapse. Above the body rather than inside it so it
+   * stays put when the toggle list is scrolled, and so it disappears with the
+   * rest of the panel when collapsed.
+   */
+  if (searchEl) panel.appendChild(searchEl);
+
   // Everything below the masthead lives in the scrollable, collapsible body.
   const body = el('div', 'panel__body', { id: bodyId });
   panel.appendChild(body);
+
 
   // ---- Layer toggles, grouped ----
   const groupDefs = groups?.length ? groups : [{ label: 'Layers', layerIds: layers.map((l) => l.id) }];
@@ -208,6 +221,7 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
 
   collapseBtn.addEventListener('click', () => setCollapsed(!collapsed));
   apply();
+
 
   return {
     el: panel,
