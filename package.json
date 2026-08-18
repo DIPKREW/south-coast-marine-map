@@ -27,7 +27,11 @@
     "data:seabed": "node scripts/fetch-seabed.mjs",
     "data:marine-species": "node scripts/build-marine-species.mjs",
     "data:recreational": "node scripts/fetch-vessel-density.mjs",
-    "data:licensing": "node scripts/fetch-marine-licensing.mjs"
+    "data:licensing": "node scripts/fetch-marine-licensing.mjs",
+    "data:fisheries": "node scripts/fetch-fisheries.mjs",
+    "data:sea-flood": "node scripts/fetch-sea-flood.mjs",
+    "data:wrecks": "node scripts/fetch-wrecks.mjs",
+    "data:compound": "node scripts/build-compound-pressure.mjs"
   },
   "dependencies": {
     "maplibre-gl": "^4.7.1",

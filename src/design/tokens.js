@@ -135,6 +135,72 @@ export const palette = {
    * slates (far greyer, much less saturated) and with the sharks-and-rays species
    * dots (small point markers rather than a wash). Worth a look with both on.
    */
+  /*
+   * COMPOUND PRESSURE INDICATOR — an "ember" ramp, pale ash through to deep
+   * plum-brown. Chosen because it reads as INTENSITY rather than as a category:
+   * this layer is a weighted composite with no units, so a ramp that looks like
+   * heat is more honest than one that looks like a classification.
+   *
+   * Kept clear of the two nearest neighbours on this map: the erosion ambers are
+   * warmer and stop at rust, the spill crimsons are pink-to-wine. This one runs
+   * gold to plum. PROPOSED, FOR REVIEW.
+   */
+  'cp-0': '#EDE7DA', // lowest band — barely tinted
+  'cp-1': '#D9C069',
+  'cp-2': '#C4823C',
+  'cp-3': '#A04A42',
+  'cp-4': '#5E2547', // highest band — deep plum
+  /*
+   * SHIPWRECKS (UKHO) — near-black markers with a paper halo.
+   *
+   * Every other thematic family on this map is a HUE (amber, crimson, teal,
+   * mauve, indigo, cyan, khaki, heather). Wrecks deliberately take none of them:
+   * a dark neutral dot reads as structure on the seabed rather than as another
+   * measured quantity, and it stays legible over every wash underneath it —
+   * which matters, because this layer sits on top of all of them.
+   *
+   * PROPOSED, FOR REVIEW — as with every palette on this map.
+   */
+  wreck: '#2E3138', // individual wreck marker
+  'wreck-danger': '#6B3038', // "dangerous wreck" — a rust-red bias, not a new family
+  'wreck-cluster': '#4A505C', // aggregated cluster bubble at low zoom
+  // Protected wreck sites (Historic England). Brass, and always drawn as a RING
+  // around a dark centre — the ring shape, not just the hue, is what marks them
+  // out, so they stay distinguishable from the dormant DWT gold markers.
+  'wreck-protected': '#C08A2A',
+  /*
+   * SEA FLOOD RISK (EA NaFRA2 climate-change extents) — one CYAN family for all
+   * four scenarios, because they are four views of a single thing rather than
+   * four different subjects. PROPOSED, FOR REVIEW.
+   *
+   * Cyan is the last clear hue on this map: brighter and cooler than the marine
+   * teal (#1F6F76) and the river blue (#47859B), and nowhere near the fisheries
+   * indigo. It also lands mostly on LAND — coastal lowland — where the only
+   * other washes are the dormant Dorset land layers, so it has room to breathe.
+   *
+   * Within the family, the distinction is DEPTH, not hue:
+   *   undefended  paler and broader — the extent with defences ignored
+   *   defended    deeper, drawn on top — the extent as currently defended
+   * The defended extent nests inside the undefended one, so with both on the
+   * pale margin around the deep core IS what the defences are holding back.
+   * The rarer 1-in-1000 pair is lighter than the 1-in-200 pair.
+   */
+  'flood-200-undef': '#B3E5F0', // 1 in 200, undefended — pale cyan margin
+  'flood-200-def': '#0E6B85', // 1 in 200, defended — deep cyan core
+  'flood-1000-undef': '#D2EFF5', // 1 in 1000, undefended — lightest, rarest
+  'flood-1000-def': '#3FA0BA', // 1 in 1000, defended
+  'flood-line': '#146B80', // shared outline for all four
+  // Commercial fishing activity (MMO VMS position density) — a true INDIGO BLUE,
+  // the one hue family nothing else on this map occupies. Deliberately not the
+  // recreational magenta it will often be compared against, not the river blue
+  // (#47859B, a desaturated teal), and not the marine teal: those three sit
+  // either side of it in hue and none reads as this cold. Pale → deep with
+  // intensity, so the busiest ground is the darkest thing in the water.
+  'fish-0': '#DFE4F1', // < 50 position reports — barely present
+  'fish-1': '#AEBBDF', // 50–250
+  'fish-2': '#7488C6', // 250–1,000
+  'fish-3': '#4557A0', // 1,000–5,000
+  'fish-4': '#212C61', // 5,000+ — the heavily worked ground
   'rec-0': '#EFE4EC', // < 0.5 transits/week — barely present
   'rec-1': '#DCB6D6', // 0.5–1
   'rec-2': '#C583C4', // 1–5

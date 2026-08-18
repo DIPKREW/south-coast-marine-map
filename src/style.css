@@ -167,14 +167,71 @@ body.is-ready .maplibregl-map {
   }
 }
 
+/* Header controls: pin, then collapse chevron. */
+.panel__actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: -3px -6px 0 0;
+}
+.panel.is-collapsed .panel__actions {
+  margin: 0;
+}
+
+/* The pin is meaningless once the panel is a tab — hide it while collapsed. */
+.panel.is-collapsed .panel__pin {
+  display: none;
+}
+
+.panel__pin {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--ink-muted);
+  cursor: pointer;
+  opacity: 0.75;
+  transform: rotate(-20deg);
+  transition: color 160ms ease, background-color 160ms ease, opacity 160ms ease,
+    transform 200ms ease;
+}
+.panel__pin:hover {
+  color: var(--ink);
+  background: var(--hairline);
+  opacity: 1;
+}
+.panel__pin:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+
+/* Active: upright, filled, and in the accent colour — unmistakably different
+   from the quiet tilted outline of the inactive state. */
+.panel__pin.is-active {
+  color: var(--surface);
+  background: var(--accent-3);
+  opacity: 1;
+  transform: rotate(0deg);
+}
+.panel__pin.is-active:hover {
+  color: var(--surface);
+  background: var(--accent-3-strong, var(--accent-3));
+}
+
 .panel__collapse {
   flex: none;
   display: grid;
   place-items: center;
   width: 28px;
   height: 28px;
-  /* Optical alignment: sit the glyph in the panel's top-right corner. */
-  margin: -3px -6px 0 0;
+  /* Optical alignment now lives on .panel__actions, which holds both buttons. */
+  margin: 0;
   padding: 0;
   background: none;
   border: none;
@@ -250,10 +307,21 @@ body.is-ready .maplibregl-map {
  * quieter than the group label — no rule above it, a hairline down the left
  * instead — so it reads as a subdivision of the group rather than a new one.
  */
+/*
+ * A subgroup gets the SAME divider as a top-level group — one hairline rule and
+ * the same spacing above it — so every section on the panel is separated the same
+ * way rather than only the last one before "Water".
+ *
+ * It is deliberately NOT indented. The old treatment (10px padding plus a
+ * hairline down the left) pushed subgroup toggles out of line with the top-level
+ * ones, so the switches sat in two different columns; the quieter subheading type
+ * below already carries the "this is a subdivision" signal without moving the
+ * rows.
+ */
 .panel__subgroup {
-  margin: 14px 0 0;
-  padding-left: 10px;
-  border-left: 1px solid var(--hairline);
+  border-top: 1px solid var(--hairline);
+  padding-top: 15px;
+  margin-top: 15px;
 }
 
 .panel__subsection-label {
@@ -431,14 +499,319 @@ body.is-ready .maplibregl-map {
   margin-top: 11px;
 }
 
-/* ---- Species checklist (many species at once) ------------------------ */
+
+/* ---- Detail panel (second panel, slides out to the right) ------------ */
 
 /*
- * Reuses the About disclosure's shell (.panel__about) for the open/close
- * mechanism, so there is one expand/collapse behaviour on this panel, not two.
- * Only the contents differ.
+ * Sits BEHIND the main panel (lower z-index, and mounted first) and slides out
+ * from underneath it. Hidden state is tucked left and faded, so the reveal reads
+ * as coming out from behind the panel rather than appearing from nowhere.
+ *
+ * `left` is the main panel's own geometry: gap + its 312px width + a 12px seam.
  */
-.panel__checklist-count {
+.detail {
+  position: absolute;
+  top: var(--panel-gap);
+  left: calc(var(--panel-gap) + 312px + 12px);
+  z-index: 9; /* under .panel (10) */
+  display: flex;
+  flex-direction: column;
+  width: 330px;
+  max-width: calc(100vw - (var(--panel-gap) + 312px + 12px) - var(--panel-gap));
+  /* Same max-height + internal-scroll pattern as the main panel. */
+  max-height: min(90vh, calc(100vh - 2 * var(--panel-gap)));
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: saturate(1.05);
+
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-26px);
+  transition: opacity 240ms ease, transform 300ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    visibility 0s linear 240ms;
+}
+
+.detail.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  transition: opacity 240ms ease, transform 300ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    visibility 0s;
+}
+
+/* Only this scrolls, so a long stack of sections stays inside the panel. */
+.detail__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-right: -10px;
+  padding-right: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline) transparent;
+}
+
+/* One section per switched-on layer. Not individually collapsible. */
+.detail__section {
+  display: none;
+}
+.detail__section.is-active {
+  display: block;
+}
+
+/* Divider between consecutive VISIBLE sections only — a hidden section must not
+   leave a stray rule behind. */
+.detail__section.is-active ~ .detail__section.is-active {
+  border-top: 1px solid var(--hairline);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.detail__section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail__section-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.detail__section-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.25;
+  color: var(--ink);
+}
+
+/* ---- Detail: legend ---- */
+
+.detail__legend {
+  margin-top: 10px;
+}
+
+.detail__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+}
+.detail__legend-item:first-child {
+  margin-top: 0;
+}
+
+.detail__legend-swatch {
+  flex: none;
+  width: 16px;
+  height: 11px;
+  border-radius: 2px;
+  border: 1px solid rgba(26, 25, 21, 0.08);
+}
+
+.detail__legend-label {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--ink-muted);
+}
+
+/* ---- Detail: About text (collapsed behind a chevron, closed by default) ---- */
+
+/*
+ * Shares its disclosure rules with the species checklist below rather than
+ * duplicating them, so there is one expand/collapse behaviour in this panel
+ * rather than two that could drift apart.
+ */
+.detail__about {
+  margin-top: 12px;
+}
+
+.detail__about-head,
+.detail__checklist-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.detail__about-head:focus-visible,
+.detail__checklist-head:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.detail__about-caret,
+.detail__checklist-caret {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  transition: transform 220ms ease;
+  transform: rotate(-90deg); /* closed → points right */
+}
+.detail__about.is-open .detail__about-caret,
+.detail__checklist.is-open .detail__checklist-caret {
+  transform: rotate(0deg); /* open → points down */
+}
+
+/* Smooth expand/collapse via a grid-rows trick (animates intrinsic height). */
+.detail__about-body,
+.detail__checklist-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 280ms ease, opacity 220ms ease;
+}
+.detail__about.is-open .detail__about-body,
+.detail__checklist.is-open .detail__checklist-body {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.detail__about-inner,
+.detail__checklist-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.detail__about-para {
+  margin: 9px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--hairline);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+.detail__about-para:first-child {
+  margin-top: 10px;
+}
+
+
+/* ---- Detail: compound pressure weight sliders ---- */
+
+.detail__weights {
+  margin-top: 12px;
+}
+
+.detail__weights-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.detail__weights-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.detail__weights-reset {
+  margin-left: auto;
+  padding: 2px 7px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  background: none;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+.detail__weights-reset:hover {
+  color: var(--ink);
+  border-color: var(--ink-muted);
+}
+.detail__weights-reset:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+
+/* The point of this note is that equal weighting is not a recommendation. */
+.detail__weights-note {
+  margin: 6px 0 10px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  font-style: italic;
+  color: var(--ink-muted);
+}
+
+.detail__weight-row {
+  display: block;
+  margin-top: 9px;
+  cursor: pointer;
+}
+
+.detail__weight-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.detail__weight-swatch {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.detail__weight-name {
+  font-size: 11.5px;
+  color: var(--ink);
+}
+
+.detail__weight-value {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-muted);
+}
+
+.detail__weight-input {
+  display: block;
+  width: 100%;
+  margin: 4px 0 0;
+  accent-color: var(--cp-3);
+  cursor: pointer;
+}
+.detail__weight-input:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 3px;
+}
+
+/* ---- Detail: species checklist ---- */
+
+/* Keeps its own disclosure: 18 rows shown unconditionally would swamp every
+   other section in the panel. */
+.detail__checklist {
+  margin-top: 12px;
+}
+
+/* Head, caret and body rules are shared with .detail__about above. */
+
+.detail__checklist-count {
   margin-left: auto;
   padding-left: 8px;
   font-family: var(--font-mono);
@@ -448,7 +821,7 @@ body.is-ready .maplibregl-map {
   opacity: 0.8;
 }
 
-.panel__checklist-group {
+.detail__checklist-group {
   margin: 12px 0 5px;
   font-family: var(--font-mono);
   font-size: 9px;
@@ -458,11 +831,11 @@ body.is-ready .maplibregl-map {
   color: var(--ink-muted);
   opacity: 0.75;
 }
-.panel__checklist-group:first-child {
+.detail__checklist-group:first-child {
   margin-top: 10px;
 }
 
-.panel__checklist-row {
+.detail__checklist-row {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -470,7 +843,7 @@ body.is-ready .maplibregl-map {
   cursor: pointer;
 }
 
-.panel__checklist-box {
+.detail__checklist-box {
   flex: none;
   width: 12px;
   height: 12px;
@@ -479,8 +852,7 @@ body.is-ready .maplibregl-map {
   cursor: pointer;
 }
 
-/* The species' own colour, so the list doubles as the legend. */
-.panel__checklist-swatch {
+.detail__checklist-swatch {
   flex: none;
   width: 9px;
   height: 9px;
@@ -488,7 +860,7 @@ body.is-ready .maplibregl-map {
   box-shadow: 0 0 0 1px var(--surface);
 }
 
-.panel__checklist-text {
+.detail__checklist-text {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -496,30 +868,26 @@ body.is-ready .maplibregl-map {
   min-width: 0;
 }
 
-.panel__checklist-common {
+.detail__checklist-common {
   font-size: 11.5px;
   line-height: 1.35;
   color: var(--ink);
 }
 
-.panel__checklist-sci {
+.detail__checklist-sci {
   font-size: 10px;
   font-style: italic;
   color: var(--ink-muted);
   opacity: 0.85;
 }
 
-/* ---- Per-layer species selector (shown only while its layer is on) -- */
+/* ---- Detail: single-species selector (dormant Dorset layer) ---- */
 
-.panel__selector {
-  display: none;
+.detail__selector {
   margin-top: 11px;
 }
-.panel__selector.is-active {
-  display: block;
-}
 
-.panel__selector-input {
+.detail__selector-input {
   width: 100%;
   padding: 6px 9px;
   font-family: var(--font-ui);
@@ -536,56 +904,47 @@ body.is-ready .maplibregl-map {
   background-position: right 10px center;
   padding-right: 26px;
 }
-.panel__selector-input:focus-visible {
+.detail__selector-input:focus-visible {
   outline: 2px solid var(--species);
   outline-offset: 1px;
 }
 
-.panel__selector-name {
+.detail__selector-name {
   margin: 6px 0 0;
   font-size: 11.5px;
   font-weight: 500;
   color: var(--ink);
 }
-.panel__selector-sci {
+.detail__selector-sci {
   font-weight: 400;
   font-style: italic;
   color: var(--ink-muted);
 }
 
-/* ---- Per-layer legend (shown only while its layer is on) ------------ */
+/*
+ * Narrow viewports: there is no room for two panels side by side, so the detail
+ * panel drops BELOW the main one and shares the left edge.
+ */
+@media (max-width: 900px) {
+  .detail {
+    left: var(--panel-gap);
+    top: auto;
+    bottom: var(--panel-gap);
+    width: 312px;
+    max-width: calc(100vw - 2 * var(--panel-gap));
+    max-height: 42vh;
+    transform: translateY(-18px);
+  }
+  .detail.is-visible {
+    transform: translateY(0);
+  }
 
-.panel__legend {
-  display: none;
-  margin-top: 10px;
-  padding-left: 1px;
-}
-.panel__legend.is-active {
-  display: block;
-}
-
-.panel__legend-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 5px;
-}
-.panel__legend-item:first-child {
-  margin-top: 0;
-}
-
-.panel__legend-swatch {
-  flex: none;
-  width: 16px;
-  height: 11px;
-  border-radius: 2px;
-  border: 1px solid rgba(26, 25, 21, 0.08);
-}
-
-.panel__legend-label {
-  font-size: 11px;
-  line-height: 1.3;
-  color: var(--ink-muted);
+  /* The main panel must yield height, or it fills the viewport and the detail
+     panel lands on top of it. Its body already scrolls, so capping it costs
+     nothing but a shorter scroll window. */
+  .panel:not(.is-collapsed) {
+    max-height: 48vh;
+  }
 }
 
 /* ---- Hover info card ------------------------------------------------ */

@@ -1,24 +1,32 @@
 /**
- * The single floating control panel (top-left). Holds the wordmark + tagline
- * and the layer toggles, grouped, rendered from the data layer config — so new
- * layers and groups appear here automatically.
+ * The main control panel (top-left). Holds the wordmark + tagline and the layer
+ * toggles, grouped, rendered from the data layer config — so new layers and
+ * groups appear here automatically.
  *
- * A group may declare an `about` drop-down: a short explanation that expands
- * beneath the group's toggles whenever any of its layers is on, with a caret to
- * collapse/expand manually. It auto-expands when the group is (re)activated and
- * hides when every layer in the group is off.
+ * This panel is TOGGLES ONLY. Each layer's legend, About text and special
+ * controls used to expand inline underneath its row; they now live in the second
+ * panel (see detailPanel.js), which sits to the right of this one. A row here is
+ * just label, sub-label and switch.
  *
- * The panel COLLAPSES to a small icon tab in the same corner, so it never covers
- * the map. Collapsing only sets a class — the body is `display: none`, never
- * rebuilt — so toggle positions and per-section about states survive a
- * collapse/expand round trip for free.
+ * The header carries two controls:
+ *   • the PIN, which suspends auto-collapse for as long as it is active;
+ *   • the COLLAPSE chevron, which shrinks the panel to a small tab in the same
+ *     corner. Collapsing only sets a class — the body is `display: none`, never
+ *     rebuilt — so toggle positions survive a collapse/expand round trip.
  *
- * Returns a handle: { el, collapse, expand, isCollapsed } — `el` is the element
- * to mount, the rest lets the caller (main.js) collapse on map interaction.
+ * `onChange` fires whenever anything the second panel cares about moves: a
+ * toggle, a late-arriving layer becoming ready or unavailable, a collapse or an
+ * expand. main.js uses it to re-sync the detail panel.
+ *
+ * Returns { el, collapse, expand, isCollapsed, isPinned }.
  */
-export function buildControlPanel({ layers, groups, controllers, wordmark, tagline }) {
+import { el } from './dom.js';
+
+export function buildControlPanel({ layers, groups, controllers, wordmark, tagline, onChange }) {
   const panel = el('section', 'panel', { role: 'region', 'aria-label': `${wordmark} controls` });
   const byId = new Map(layers.map((l) => [l.id, l]));
+
+  const notify = () => onChange?.();
 
   // ---- Masthead ----
   const head = el('header', 'panel__head');
@@ -28,6 +36,16 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
   const tag = el('p', 'panel__tagline');
   tag.textContent = tagline;
   headText.append(mark, tag);
+
+  const actions = el('div', 'panel__actions');
+
+  // Pin: while active, map interaction no longer collapses the panel. Manual
+  // collapse via the chevron is deliberately unaffected.
+  const pinBtn = el('button', 'panel__pin', { type: 'button', 'aria-pressed': 'false' });
+  pinBtn.innerHTML =
+    '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">' +
+    '<path fill="currentColor" d="M9.6 1.2a1 1 0 0 1 1.4 0l3.8 3.8a1 1 0 0 1-.7 1.7c-.9 0-1.7.3-2.3.9l-.6.6.5 2.4a1 1 0 0 1-1.7.9L7.4 9.2l-3.6 3.6a1 1 0 0 1-1.4-1.4l3.6-3.6L2.5 5.5a1 1 0 0 1 .9-1.7l2.4.5.6-.6c.6-.6.9-1.4.9-2.3a1 1 0 0 1 .3-.2z"/>' +
+    '</svg>';
 
   // Collapse control, top-right of the header. When collapsed the panel shrinks
   // to this button, so the button *is* the tab that reopens it — click only, no
@@ -40,7 +58,8 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
   });
   collapseBtn.appendChild(el('span', 'panel__collapse-icon', { 'aria-hidden': 'true' }));
 
-  head.append(headText, collapseBtn);
+  actions.append(pinBtn, collapseBtn);
+  head.append(headText, actions);
   panel.appendChild(head);
 
   // Everything below the masthead lives in the scrollable, collapsible body.
@@ -57,62 +76,20 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
     section.appendChild(heading);
 
     const groupIds = [];
-    // Functions re-run whenever any toggle in the group changes (legends, about).
+    // Functions re-run whenever any toggle in the group changes. Only the
+    // dormant group-level About uses this now; per-layer content moved out.
     const syncers = [];
-    const runSyncers = () => syncers.forEach((fn) => fn());
+    const runSyncers = () => {
+      syncers.forEach((fn) => fn());
+      notify();
+    };
 
-    // Render one layer's toggle plus its optional selector / legend / about into
-    // `into`. Shared by the group's own layers and any subgroup's, so a toggle
-    // under a subheading behaves exactly like one directly under the group.
     const addLayerControls = (id, into) => {
       const layer = byId.get(id);
       const controller = layer && controllers.get(id);
       if (!controller) return;
       groupIds.push(id);
       into.appendChild(buildToggle(layer, controller, runSyncers));
-
-      // Optional per-layer species selector (one species at a time).
-      if (layer.species && controller.setSpecies) {
-        const selector = buildSelector(layer, controller);
-        into.appendChild(selector.el);
-        const sync = () => selector.setVisible(controller.isVisible());
-        syncers.push(sync);
-        sync();
-      }
-
-      // Optional per-layer species CHECKLIST (many species at once). Shown only
-      // while the layer is on, like the legend and the About drop-down.
-      if (layer.species && controller.setChecked) {
-        const list = buildSpeciesChecklist(layer, controller);
-        into.appendChild(list.el);
-        const sync = () => list.setVisible(controller.isVisible());
-        syncers.push(sync);
-        sync();
-      }
-
-      // Optional per-layer legend, shown only while that layer is on.
-      if (layer.legend) {
-        const legend = buildLegend(layer.legend);
-        into.appendChild(legend.el);
-        const sync = () => legend.setVisible(controller.isVisible());
-        syncers.push(sync);
-        sync();
-      }
-
-      // Optional per-layer about drop-down, shown only while that layer is on.
-      if (layer.about) {
-        const about = buildAbout(layer.about);
-        into.appendChild(about.el);
-        let wasOn = controller.isVisible();
-        const sync = () => {
-          const on = controller.isVisible();
-          if (on && !wasOn) about.open(); // re-activated → expand
-          about.setVisible(on);
-          wasOn = on;
-        };
-        syncers.push(sync);
-        sync();
-      }
     };
 
     for (const id of group.layerIds) addLayerControls(id, section);
@@ -128,28 +105,22 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
       const before = groupIds.length;
       for (const id of sub.layerIds) addLayerControls(id, subSection);
       if (groupIds.length === before) continue; // nothing rendered — no bare heading
-
-      if (sub.about) {
-        const about = buildAbout(sub.about);
-        subSection.appendChild(about.el);
-        const ids = sub.layerIds.filter((id) => controllers.get(id));
-        const isActive = () => ids.some((id) => controllers.get(id).isVisible());
-        let wasActive = isActive();
-        const sync = () => {
-          const active = isActive();
-          if (active && !wasActive) about.open();
-          about.setVisible(active);
-          wasActive = active;
-        };
-        syncers.push(sync);
-        sync();
-      }
       section.appendChild(subSection);
     }
 
     if (!groupIds.length) continue;
 
-    // Optional explanation drop-down for the whole group.
+    /*
+     * GROUP-level explanation drop-down — distinct from the per-layer About text
+     * that moved to the detail panel, and left here deliberately.
+     *
+     * Only one group declares it (Dorset Wildlife Trust), and that group is
+     * dormant behind SHOW_DORSET_LAND_LAYERS, so this renders nowhere today. It
+     * describes a group rather than a layer, and the detail panel is organised
+     * strictly one-section-per-layer, so there is nowhere for it to go there
+     * without inventing a concept nothing currently needs. Kept working so that
+     * flipping the flag back restores the DWT group exactly as it was.
+     */
     if (group.about) {
       const about = buildAbout(group.about);
       section.appendChild(about.el);
@@ -169,6 +140,22 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
     body.appendChild(section);
   }
 
+  // ---- Pin ----
+  let pinned = false;
+  const applyPin = () => {
+    panel.classList.toggle('is-pinned', pinned);
+    pinBtn.classList.toggle('is-active', pinned);
+    pinBtn.setAttribute('aria-pressed', String(pinned));
+    const label = pinned ? 'Unpin panels (allow auto-collapse)' : 'Pin panels open';
+    pinBtn.setAttribute('aria-label', label);
+    pinBtn.setAttribute('title', label);
+  };
+  pinBtn.addEventListener('click', () => {
+    pinned = !pinned;
+    applyPin();
+  });
+  applyPin();
+
   // ---- Collapse / expand ----
   let collapsed = false;
   const apply = () => {
@@ -183,6 +170,7 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
     if (next === collapsed) return;
     collapsed = next;
     apply();
+    notify();
   };
 
   collapseBtn.addEventListener('click', () => setCollapsed(!collapsed));
@@ -193,6 +181,7 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
     collapse: () => setCollapsed(true),
     expand: () => setCollapsed(false),
     isCollapsed: () => collapsed,
+    isPinned: () => pinned,
   };
 }
 
@@ -227,7 +216,7 @@ function buildToggle(layer, controller, onChange) {
   });
 
   // Layers that finish setting up after the panel is built (e.g. the PMTiles
-  // fetch): re-sync legends/abouts when ready; grey the row out on failure.
+  // fetch): re-sync when ready; grey the row out on failure.
   controller.onReady?.(() => onChange?.());
   controller.onUnavailable?.(() => {
     input.checked = false;
@@ -241,6 +230,7 @@ function buildToggle(layer, controller, onChange) {
   return row;
 }
 
+/** The group-level drop-down described above. Per-layer About lives elsewhere. */
 function buildAbout({ title, body }) {
   const root = el('div', 'panel__about');
 
@@ -280,146 +270,4 @@ function buildAbout({ title, body }) {
     },
     setVisible: (visible) => root.classList.toggle('is-active', visible),
   };
-}
-
-// A species selector (dropdown) + the current species' common + scientific name,
-// shown only while its layer is on. Changing it calls controller.setSpecies.
-function buildSelector(layer, controller) {
-  const root = el('div', 'panel__selector');
-
-  const select = el('select', 'panel__selector-input', { 'aria-label': 'Choose species' });
-  for (const s of layer.species) {
-    const opt = el('option');
-    opt.value = s.key;
-    opt.textContent = s.common;
-    select.appendChild(opt);
-  }
-  select.value = controller.getSpecies();
-
-  const name = el('p', 'panel__selector-name');
-  const sci = el('span', 'panel__selector-sci');
-  const render = (key) => {
-    const s = layer.species.find((x) => x.key === key);
-    name.textContent = s ? s.common + ' · ' : '';
-    sci.textContent = s ? s.sci : '';
-    name.appendChild(sci);
-  };
-  render(select.value);
-
-  select.addEventListener('change', () => {
-    controller.setSpecies(select.value);
-    render(select.value);
-  });
-
-  root.append(select, name);
-  return { el: root, setVisible: (v) => root.classList.toggle('is-active', v) };
-}
-
-// A small colour-swatch legend, shown only while its layer is on.
-/**
- * A multi-select species CHECKLIST, in the same collapsible disclosure the About
- * text uses. Grouped by taxonomic category, every species unticked to start —
- * ticking one is what fetches it, so an untouched list costs nothing.
- */
-function buildSpeciesChecklist(layer, controller) {
-  const root = el('div', 'panel__about panel__checklist');
-
-  const headBtn = el('button', 'panel__about-head', { type: 'button', 'aria-expanded': 'false' });
-  headBtn.append(el('span', 'panel__about-caret', { 'aria-hidden': 'true' }));
-  const titleEl = el('span', 'panel__about-title');
-  titleEl.textContent = 'Choose species';
-  headBtn.appendChild(titleEl);
-  const countEl = el('span', 'panel__checklist-count');
-  headBtn.appendChild(countEl);
-
-  const bodyEl = el('div', 'panel__about-body');
-  const inner = el('div', 'panel__about-inner');
-
-  const groups = layer.speciesGroups?.length
-    ? layer.speciesGroups
-    : [{ key: null, label: null }];
-
-  for (const g of groups) {
-    const members = layer.species.filter((sp) => (g.key ? sp.group === g.key : true));
-    if (!members.length) continue;
-    if (g.label) {
-      const h = el('p', 'panel__checklist-group');
-      h.textContent = g.label;
-      inner.appendChild(h);
-    }
-    for (const sp of members) {
-      const id = `sp-${layer.id}-${sp.key}`;
-      const row = el('label', 'panel__checklist-row');
-      row.setAttribute('for', id);
-
-      const box = el('input', 'panel__checklist-box', { type: 'checkbox', id });
-      box.checked = controller.isChecked(sp.key);
-
-      const sw = el('span', 'panel__checklist-swatch', { 'aria-hidden': 'true' });
-      if (sp.colorVar) sw.style.background = `var(--${sp.colorVar})`;
-
-      const text = el('span', 'panel__checklist-text');
-      const common = el('span', 'panel__checklist-common');
-      common.textContent = sp.common;
-      const sci = el('span', 'panel__checklist-sci');
-      sci.textContent = sp.sci;
-      text.append(common, sci);
-
-      box.addEventListener('change', () => {
-        controller.setChecked(sp.key, box.checked);
-        renderCount();
-      });
-
-      row.append(box, sw, text);
-      inner.appendChild(row);
-    }
-  }
-
-  bodyEl.appendChild(inner);
-  root.append(headBtn, bodyEl);
-
-  const renderCount = () => {
-    const n = controller.checkedKeys().length;
-    countEl.textContent = n ? `${n} of ${layer.species.length}` : `none of ${layer.species.length}`;
-  };
-  renderCount();
-
-  // Starts CLOSED: 18 rows would otherwise push everything else off the panel
-  // the moment the layer is switched on.
-  let open = false;
-  const apply = () => {
-    root.classList.toggle('is-open', open);
-    headBtn.setAttribute('aria-expanded', String(open));
-  };
-  headBtn.addEventListener('click', () => {
-    open = !open;
-    apply();
-  });
-  apply();
-
-  return {
-    el: root,
-    setVisible: (v) => root.classList.toggle('is-active', v),
-  };
-}
-
-function buildLegend(items) {
-  const root = el('div', 'panel__legend');
-  for (const it of items) {
-    const row = el('span', 'panel__legend-item');
-    const sw = el('span', 'panel__legend-swatch', { 'aria-hidden': 'true' });
-    sw.style.background = `var(--${it.colorVar})`;
-    const lb = el('span', 'panel__legend-label');
-    lb.textContent = it.label;
-    row.append(sw, lb);
-    root.appendChild(row);
-  }
-  return { el: root, setVisible: (v) => root.classList.toggle('is-active', v) };
-}
-
-function el(tag, className, attrs = {}) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-  return node;
 }

@@ -41,7 +41,7 @@ export function applyDataLayers(map, layers) {
   const registry = []; // { layer, queryId, sourceId, sourceLayer, priority } per hit-test layer
   let beforeId; // insertion anchor — keeps earlier layers on top
 
-  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, wfd: addWfdLayer, seabed: addSeabedLayer, marinemarkers: addMarineMarkersLayer, density: addDensityLayer, licensing: addLicensingLayer, todo: addTodoLayer };
+  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, wfd: addWfdLayer, seabed: addSeabedLayer, marinemarkers: addMarineMarkersLayer, density: addDensityLayer, licensing: addLicensingLayer, wrecks: addWrecksLayer, compound: addCompoundLayer, todo: addTodoLayer };
   for (const layer of layers) {
     const add = adders[layer.kind] || addPolygonLayer;
     // A layer that starts hidden is DEFERRED: neither its source nor its layers
@@ -81,11 +81,98 @@ export function applyDataLayers(map, layers) {
     beforeId = entry.bottomId; // next layer is inserted beneath this one
   }
 
+  wirePairs(layers, controllers);
   setupHover(map, card, registry, controllers, hover, clearHover);
   return controllers;
 }
 
+/**
+ * COEXISTENCE PAIRS — let a layer's paint respond to its partner's toggle.
+ *
+ * Two pairs on this map collide badly when both are switched on: the live
+ * discharge markers sit on the very same outfalls as the annual spill dots, and
+ * commercial fishing and recreational pressure are both full-coverage washes
+ * over the same water. Each is declared in the registry with `pairedWith` plus a
+ * `pairedPaint` block, and the renderer for that kind exposes `setPaired`.
+ *
+ * This is deliberately general rather than two hardcoded checks: adding another
+ * pair means adding `pairedWith`/`pairedPaint` to a layer and teaching its
+ * renderer `setPaired`, with nothing to change here.
+ *
+ * Visibility has no change event, so each participating controller's show/hide
+ * is wrapped once to re-run the sync. Only layers that actually take part are
+ * wrapped, so every other layer keeps its untouched controller — which is what
+ * guarantees seabed, marine species, water body status and the rest cannot be
+ * affected by any of this.
+ */
+function wirePairs(layers, controllers) {
+  const pairs = layers.filter((l) => l.pairedWith && controllers.get(l.pairedWith));
+  if (!pairs.length) return;
+
+  const sync = () => {
+    for (const l of pairs) {
+      const self = controllers.get(l.id);
+      const other = controllers.get(l.pairedWith);
+      self.setPaired?.(self.isVisible() && other.isVisible());
+    }
+  };
+
+  const participants = new Set();
+  for (const l of pairs) {
+    participants.add(l.id);
+    participants.add(l.pairedWith);
+  }
+
+  for (const id of participants) {
+    const c = controllers.get(id);
+    const show = c.show.bind(c);
+    const hide = c.hide.bind(c);
+    c.show = () => { show(); sync(); };
+    c.hide = () => { hide(); sync(); };
+    // Rebound so it goes through the wrappers above rather than the originals.
+    c.toggle = () => (c.isVisible() ? c.hide() : c.show());
+  }
+
+  sync(); // initial state, in case a pair ever ships both-on by default
+}
+
 const hoverExpr = (a, b) => ['case', ['boolean', ['feature-state', 'hover'], false], a, b];
+
+/**
+ * A tiling diagonal HATCH swatch, drawn at runtime and registered as a map image
+ * so a fill layer can use it as `fill-pattern`.
+ *
+ * This is how two full-coverage sea washes are told apart when both are on.
+ * Colour alone cannot do it: alpha-blending two translucent fills produces a
+ * third colour that belongs to neither, and the eye cannot decompose it — the
+ * indigo fishing wash over the magenta recreational wash just reads as flat
+ * purple, however the opacities are tuned. Texture separates them on a different
+ * channel entirely, so each layer keeps its own colour at full strength and the
+ * layer underneath stays visible through the gaps.
+ *
+ * The tile is square and the stroke wraps at both diagonals, so it repeats
+ * seamlessly. Drawn at 2x for a crisp edge on retina displays.
+ */
+function makeHatchImage(color, { size = 8, width = 2.2, ratio = 2 } = {}) {
+  const px = size * ratio;
+  const canvas = document.createElement('canvas');
+  canvas.width = px;
+  canvas.height = px;
+  const ctx = canvas.getContext('2d');
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width * ratio;
+  ctx.lineCap = 'square';
+  // Three parallel passes, offset by ±one tile, so the diagonal is continuous
+  // across tile boundaries instead of stopping at the edge.
+  for (const off of [-px, 0, px]) {
+    ctx.beginPath();
+    ctx.moveTo(off - 1, px + 1);
+    ctx.lineTo(off + px + 1, -1);
+    ctx.stroke();
+  }
+  const { data } = ctx.getImageData(0, 0, px, px);
+  return { width: px, height: px, data: new Uint8Array(data) };
+}
 
 /**
  * LAZY LOADING — wrap a layer so nothing is fetched until it is first shown.
@@ -129,6 +216,13 @@ function deferLayer(map, layer, beforeId, ctx, add) {
   // the layer exists so the build starts on the right one.
   let species = layer.defaultSpecies ?? layer.species?.[0]?.key;
 
+  // Coexistence state, held here for exactly the same reason as `species`: it
+  // can be set before the real layer exists, and must survive until it does.
+  let paired = false;
+
+  // Slider weights chosen before the layer built. Same buffering rationale.
+  const pendingWeights = Object.fromEntries((layer.pressures ?? []).map((p) => [p.key, 1]));
+
   const build = async () => {
     if (real || failed || building) return;
     building = true;
@@ -139,6 +233,12 @@ function deferLayer(map, layer, beforeId, ctx, add) {
       // defaultVisible true: we are building precisely because it was asked for.
       real = add(map, { ...layer, ...extra, defaultVisible: true, defaultSpecies: species }, anchorId, ctx);
       resolveQuery(real.queryLayers ?? []);
+      // A pair partner may already have been on while this layer was still
+      // deferred, so the coexistence state has to be replayed onto the real
+      // controller the moment it exists — it was set on a controller that did
+      // not yet have anything to paint.
+      real.controller.setPaired?.(paired);
+      if (layer.pressures) real.controller.setWeights?.(pendingWeights);
       // Switched off again while the data was in flight — respect that.
       if (!want) real.controller.hide();
       readyCbs.forEach((cb) => cb());
@@ -169,8 +269,27 @@ function deferLayer(map, layer, beforeId, ctx, add) {
     },
     onReady: (cb) => (real ? cb() : readyCbs.push(cb)),
     onUnavailable: (cb) => (failed ? cb() : failCbs.push(cb)),
+    setPaired: (on) => {
+      paired = on;
+      real?.controller.setPaired?.(on);
+    },
   };
   controller.toggle = () => (want ? controller.hide() : controller.show());
+
+  /*
+   * Compound pressure exposes weight controls. Like `species` and `paired`, the
+   * panel can touch these before the real layer exists — the detail panel builds
+   * its sections up front, while this layer is still deferred — so the chosen
+   * weights are buffered here and replayed on build.
+   */
+  if (layer.pressures) {
+    controller.getWeights = () => (real ? real.controller.getWeights() : { ...pendingWeights });
+    controller.getBreaks = () => (real ? real.controller.getBreaks() : [0.2, 0.4, 0.6, 0.8]);
+    controller.setWeights = (next) => {
+      Object.assign(pendingWeights, next);
+      real?.controller.setWeights(next);
+    };
+  }
 
   if (layer.species) {
     controller.getSpecies = () => species;
@@ -663,6 +782,37 @@ function addLiveOverflowLayer(map, layer, beforeId, { card, clearHover }) {
 
   map.addSource(sourceId, { type: 'geojson', data: layer.data, generateId: true });
 
+  /*
+   * COEXISTENCE with the annual spill dots, which mark the SAME outfalls.
+   *
+   * Solo, this layer is a filled marker: a solid alert disc for discharging, and
+   * paper-filled discs for the quiet and offline states. Every one of those
+   * fills sits directly on an annual dot and hides its spill-count colour.
+   *
+   * Paired, the fill is dropped entirely and the marker grows, so it reads as a
+   * RING AROUND the annual dot rather than a disc on top of it. Colour still
+   * carries the annual reading in the centre; the ring's own colour and weight
+   * still carry the live status. The stroke thickens to stay legible now that it
+   * is the only thing being drawn.
+   */
+  const pp = layer.pairedPaint;
+  let paired = false;
+  const on = () => paired && pp;
+
+  const radiusExpr = () => {
+    const k = on() ? pp.radiusScale : 1;
+    const stop = (a, b, cOff) => ['*', byStatus(a * k, b * k, cOff * k), ['case', hb, 1.5, 1]];
+    return ['interpolate', ['linear'], ['zoom'],
+      7, stop(3.4, 2.2, 1.9),
+      11, stop(5, 3.2, 2.7),
+      15, stop(7.5, 4.8, 4),
+    ];
+  };
+  // Ring-only: no fill at all, so the annual colour underneath shows through.
+  const opacityExpr = () => (on() && pp.ringOnly ? 0 : byStatus(0.95, 0.85, 0.5));
+  const strokeOpacityExpr = () => byStatus(1, 0.9, 0.55);
+  const strokeWidthExpr = () => (on() ? hoverExpr(pp.strokeWidth[0], pp.strokeWidth[1]) : hoverExpr(2.2, 1.4));
+
   map.addLayer(
     {
       id: dotId, type: 'circle', source: sourceId,
@@ -671,14 +821,10 @@ function addLiveOverflowLayer(map, layer, beforeId, { card, clearHover }) {
         // Discharging is a solid disc; the other two are hollow (paper-filled).
         'circle-color': byStatus(palette['discharge-on'], palette.surface, palette.surface),
         'circle-stroke-color': byStatus(palette['discharge-on'], palette['discharge-off'], palette['discharge-offline']),
-        'circle-radius': ['interpolate', ['linear'], ['zoom'],
-          7, ['*', byStatus(3.4, 2.2, 1.9), ['case', hb, 1.5, 1]],
-          11, ['*', byStatus(5, 3.2, 2.7), ['case', hb, 1.5, 1]],
-          15, ['*', byStatus(7.5, 4.8, 4), ['case', hb, 1.5, 1]],
-        ],
-        'circle-stroke-width': hoverExpr(2.2, 1.4),
-        'circle-opacity': startVisible ? byStatus(0.95, 0.85, 0.5) : 0,
-        'circle-stroke-opacity': startVisible ? byStatus(1, 0.85, 0.5) : 0,
+        'circle-radius': radiusExpr(),
+        'circle-stroke-width': strokeWidthExpr(),
+        'circle-opacity': startVisible ? opacityExpr() : 0,
+        'circle-stroke-opacity': startVisible ? strokeOpacityExpr() : 0,
         'circle-radius-transition': { duration: 150 },
         'circle-opacity-transition': { duration: FADE_MS },
         'circle-stroke-opacity-transition': { duration: FADE_MS },
@@ -687,19 +833,31 @@ function addLiveOverflowLayer(map, layer, beforeId, { card, clearHover }) {
     beforeId,
   );
 
-  const opacityExpr = byStatus(0.95, 0.85, 0.5);
-  const strokeOpacityExpr = byStatus(1, 0.85, 0.5);
   const controller = makeController(map, {
     layerIds: [dotId], sourceId, startVisible, card, clearHover,
     onShow: () => {
-      map.setPaintProperty(dotId, 'circle-opacity', opacityExpr);
-      map.setPaintProperty(dotId, 'circle-stroke-opacity', strokeOpacityExpr);
+      map.setPaintProperty(dotId, 'circle-opacity', opacityExpr());
+      map.setPaintProperty(dotId, 'circle-stroke-opacity', strokeOpacityExpr());
     },
     onHide: () => {
       map.setPaintProperty(dotId, 'circle-opacity', 0);
       map.setPaintProperty(dotId, 'circle-stroke-opacity', 0);
     },
   });
+
+  controller.setPaired = (next) => {
+    if (next === paired) return;
+    paired = next;
+    // Radius and stroke width are safe to set whether or not the layer is
+    // showing — they carry no opacity. The two opacities are gated, so a hidden
+    // layer is not revived by its partner being switched on.
+    map.setPaintProperty(dotId, 'circle-radius', radiusExpr());
+    map.setPaintProperty(dotId, 'circle-stroke-width', strokeWidthExpr());
+    if (controller.isVisible()) {
+      map.setPaintProperty(dotId, 'circle-opacity', opacityExpr());
+      map.setPaintProperty(dotId, 'circle-stroke-opacity', strokeOpacityExpr());
+    }
+  };
 
   // Slightly above the annual dots: "what is happening now" is the more
   // specific answer where the two sit on the same outfall.
@@ -1061,11 +1219,39 @@ function addDensityLayer(map, layer, beforeId, { card, clearHover }) {
   const c = layer.paint.colors;
   const breaks = layer.paint.breaks;
   const startVisible = layer.defaultVisible !== false;
-  const fillOpacityExpr = hoverExpr(layer.paint.fillOpacityHover, layer.paint.fillOpacity);
+  const pp = layer.pairedPaint;
+  const soloOpacity = hoverExpr(layer.paint.fillOpacityHover, layer.paint.fillOpacity);
+  // Opacity used only while this layer's coexistence partner is also on. Absent
+  // for every density layer with no partner, which behaves exactly as before.
+  const pairedOpacity = pp ? hoverExpr(pp.fillOpacityHover, pp.fillOpacity) : soloOpacity;
+
+  let paired = false;
+  const fillOpacityExpr = () => (paired ? pairedOpacity : soloOpacity);
 
   map.addSource(sourceId, { type: 'geojson', data: layer.data, generateId: true });
 
   const colorExpr = ['step', ['get', layer.field], c[0], ...breaks.flatMap((b, i) => [b, c[i + 1]])];
+
+  /*
+   * HATCH — the coexistence treatment for a wash that has to sit over another
+   * wash. One hatch swatch is registered per band, in that band's own colour, so
+   * the ramp still reads; the pattern is then selected by the same `step` on the
+   * data field that drives the solid fill. Where the pattern is transparent the
+   * layer underneath shows through at full strength, so both colours survive.
+   */
+  const hatchPattern = pp?.hatch
+    ? (() => {
+        // `paint.colors` is keyed by band index (an object, not an array), so the
+        // ids are built from the band count rather than by mapping over it.
+        const opts = pp.hatch === true ? {} : pp.hatch;
+        const ids = Array.from({ length: breaks.length + 1 }, (_, i) => {
+          const id = `${layer.id}-hatch-${i}`;
+          if (!map.hasImage(id)) map.addImage(id, makeHatchImage(c[i], opts), { pixelRatio: 2 });
+          return id;
+        });
+        return ['step', ['get', layer.field], ids[0], ...breaks.flatMap((b, i) => [b, ids[i + 1]])];
+      })()
+    : null;
 
   map.addLayer(
     {
@@ -1073,7 +1259,7 @@ function addDensityLayer(map, layer, beforeId, { card, clearHover }) {
       layout: { visibility: startVisible ? 'visible' : 'none' },
       paint: {
         'fill-color': colorExpr,
-        'fill-opacity': startVisible ? fillOpacityExpr : 0,
+        'fill-opacity': startVisible ? fillOpacityExpr() : 0,
         'fill-opacity-transition': { duration: FADE_MS }, 'fill-antialias': false,
       },
     },
@@ -1082,12 +1268,331 @@ function addDensityLayer(map, layer, beforeId, { card, clearHover }) {
 
   const controller = makeController(map, {
     layerIds: [fillId], sourceId, startVisible, card, clearHover,
-    onShow: () => map.setPaintProperty(fillId, 'fill-opacity', fillOpacityExpr),
+    onShow: () => map.setPaintProperty(fillId, 'fill-opacity', fillOpacityExpr()),
     onHide: () => map.setPaintProperty(fillId, 'fill-opacity', 0),
   });
 
+  // Repaint only while actually visible — a hidden layer is held at opacity 0
+  // and must not be brought back by a partner's toggle. `fill-pattern` carries
+  // no opacity of its own, so it is safe to set either way.
+  controller.setPaired = (on) => {
+    if (on === paired) return;
+    paired = on;
+    if (hatchPattern) {
+      // NULL, not undefined: undefined leaves the property at its previous value,
+      // so the layer would stay hatched after its partner was switched off.
+      // Unsetting it falls back to the solid `fill-color`.
+      map.setPaintProperty(fillId, 'fill-pattern', on ? hatchPattern : null);
+    }
+    if (controller.isVisible()) map.setPaintProperty(fillId, 'fill-opacity', fillOpacityExpr());
+  };
+
   // A broad context wash — above the seabed it sits on, below everything specific.
   return { controller, queryLayers: [{ id: fillId, priority: 10 }], sourceId, bottomId: fillId };
+}
+
+/**
+ * SHIPWRECKS (UKHO Wrecks & Obstructions + Historic England protected sites).
+ *
+ * 3,664 points in the corridor, and the density is the whole design problem:
+ * measured on the real data, at the opening corridor zoom 99% of wrecks sit
+ * closer to a neighbour than a marker is wide, so drawn plainly they merge into
+ * one grey smear along the coast. That resolves as you zoom — 34% overlapping at
+ * z10, 9% at z13, 4% at z14.
+ *
+ * So the general wrecks are CLUSTERED, using MapLibre's own clustering rather
+ * than a library: below the cluster zoom they aggregate into a bubble carrying a
+ * count, above it they separate into individual markers. A count is an honest
+ * thing to show at a zoom where individual points cannot be told apart anyway.
+ *
+ * The 31 PROTECTED sites are a second, deliberately UNclustered source drawn
+ * over the top. They are the legally designated wrecks — Mary Rose, Invincible,
+ * Studland Bay — and burying them inside a cluster bubble would hide the most
+ * significant thing the layer has to say. One toggle, two sources: the same
+ * shape as the waterways layer (lines plus named bodies).
+ */
+function addWrecksLayer(map, layer, beforeId, { card, clearHover }) {
+  const sourceId = `${layer.id}-source`;
+  const protSourceId = `${layer.id}-prot-source`;
+  const clusterId = `${layer.id}-cluster`;
+  const countId = `${layer.id}-count`;
+  const dotId = `${layer.id}-dot`;
+  const protId = `${layer.id}-prot`;
+  const startVisible = layer.defaultVisible !== false;
+  const hb = ['boolean', ['feature-state', 'hover'], false];
+
+  map.addSource(sourceId, {
+    type: 'geojson',
+    data: layer.data,
+    generateId: true,
+    cluster: true,
+    // Above this zoom every wreck is drawn individually. 11 is where the
+    // measured overlap has fallen to about a fifth.
+    clusterMaxZoom: 11,
+    clusterRadius: 44,
+  });
+  map.addSource(protSourceId, { type: 'geojson', data: layer.protectedData, generateId: true });
+
+  // MapLibre's `beforeId` inserts a layer BENEATH the named one, and successive
+  // inserts against the SAME anchor stack in call order. So adding cluster →
+  // count → dot → protected all against `beforeId` yields exactly that order
+  // bottom-to-top, with the protected rings on top. (Anchoring each layer on the
+  // previous one instead buries them in reverse — which is how the cluster
+  // counts first ended up hidden behind their own circles.)
+  map.addLayer(
+    {
+      id: clusterId, type: 'circle', source: sourceId, filter: ['has', 'point_count'],
+      layout: { visibility: startVisible ? 'visible' : 'none' },
+      paint: {
+        'circle-color': palette['wreck-cluster'],
+        // Area-proportional-ish steps, so a 500-wreck bubble is not 50x a 10.
+        'circle-radius': ['step', ['get', 'point_count'], 9, 10, 12, 30, 15, 80, 19, 200, 24],
+        'circle-opacity': startVisible ? 0.82 : 0,
+        'circle-stroke-color': palette.surface,
+        'circle-stroke-width': 1.4,
+        'circle-stroke-opacity': startVisible ? 0.9 : 0,
+        'circle-opacity-transition': { duration: FADE_MS },
+        'circle-stroke-opacity-transition': { duration: FADE_MS },
+      },
+    },
+    beforeId,
+  );
+
+  map.addLayer(
+    {
+      id: countId, type: 'symbol', source: sourceId, filter: ['has', 'point_count'],
+      layout: {
+        visibility: startVisible ? 'visible' : 'none',
+        'text-field': ['get', 'point_count_abbreviated'],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': ['step', ['get', 'point_count'], 10, 30, 11, 200, 12],
+        'text-allow-overlap': true,
+      },
+      paint: {
+        'text-color': palette.surface,
+        'text-opacity': startVisible ? 1 : 0,
+        'text-opacity-transition': { duration: FADE_MS },
+      },
+    },
+    beforeId,
+  );
+
+  map.addLayer(
+    {
+      id: dotId, type: 'circle', source: sourceId, filter: ['!', ['has', 'point_count']],
+      layout: { visibility: startVisible ? 'visible' : 'none' },
+      paint: {
+        // Dangerous wrecks carry a rust bias — the one distinction the source
+        // makes that a reader can act on.
+        'circle-color': ['case', ['==', ['get', 'cat'], 'dangerous wreck'], palette['wreck-danger'], palette.wreck],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'],
+          10, ['*', 2.6, ['case', hb, 1.6, 1]],
+          13, ['*', 3.8, ['case', hb, 1.6, 1]],
+          16, ['*', 5.4, ['case', hb, 1.6, 1]],
+        ],
+        'circle-stroke-color': palette.surface,
+        'circle-stroke-width': hoverExpr(1.6, 0.9),
+        'circle-opacity': startVisible ? 0.92 : 0,
+        'circle-stroke-opacity': startVisible ? 0.85 : 0,
+        'circle-radius-transition': { duration: 150 },
+        'circle-opacity-transition': { duration: FADE_MS },
+        'circle-stroke-opacity-transition': { duration: FADE_MS },
+      },
+    },
+    beforeId,
+  );
+
+  // Protected sites: a brass RING (hollow centre) so the shape marks them out
+  // even where the colour sits over a warm wash.
+  map.addLayer(
+    {
+      id: protId, type: 'circle', source: protSourceId,
+      layout: { visibility: startVisible ? 'visible' : 'none' },
+      paint: {
+        'circle-color': palette.wreck,
+        'circle-radius': ['interpolate', ['linear'], ['zoom'],
+          7, ['*', 3.4, ['case', hb, 1.5, 1]],
+          11, ['*', 5, ['case', hb, 1.5, 1]],
+          15, ['*', 7.5, ['case', hb, 1.5, 1]],
+        ],
+        'circle-stroke-color': palette['wreck-protected'],
+        'circle-stroke-width': hoverExpr(3.4, 2.4),
+        'circle-opacity': startVisible ? 0.95 : 0,
+        'circle-stroke-opacity': startVisible ? 1 : 0,
+        'circle-radius-transition': { duration: 150 },
+        'circle-opacity-transition': { duration: FADE_MS },
+        'circle-stroke-opacity-transition': { duration: FADE_MS },
+      },
+    },
+    beforeId,
+  );
+
+  const controller = makeController(map, {
+    layerIds: [clusterId, countId, dotId, protId], sourceId, startVisible, card, clearHover,
+    onShow: () => {
+      map.setPaintProperty(clusterId, 'circle-opacity', 0.82);
+      map.setPaintProperty(clusterId, 'circle-stroke-opacity', 0.9);
+      map.setPaintProperty(countId, 'text-opacity', 1);
+      map.setPaintProperty(dotId, 'circle-opacity', 0.92);
+      map.setPaintProperty(dotId, 'circle-stroke-opacity', 0.85);
+      map.setPaintProperty(protId, 'circle-opacity', 0.95);
+      map.setPaintProperty(protId, 'circle-stroke-opacity', 1);
+    },
+    onHide: () => {
+      for (const [id, props] of [[clusterId, ['circle-opacity', 'circle-stroke-opacity']],
+        [countId, ['text-opacity']], [dotId, ['circle-opacity', 'circle-stroke-opacity']],
+        [protId, ['circle-opacity', 'circle-stroke-opacity']]]) {
+        for (const pr of props) map.setPaintProperty(id, pr, 0);
+      }
+    },
+  });
+
+  // Protected outranks an individual wreck, which outranks a cluster bubble.
+  return {
+    controller,
+    queryLayers: [
+      { id: protId, source: protSourceId, priority: 68 },
+      { id: dotId, priority: 66 },
+      { id: clusterId, priority: 64 },
+    ],
+    sourceId,
+    bottomId: clusterId,
+  };
+}
+
+/**
+ * COMPOUND PRESSURE INDICATOR.
+ *
+ * NOT a cumulative effects assessment — see the layer's About text and the
+ * decision log. It draws a weighted mean of five independently-normalised
+ * pressures, with the weights chosen by whoever is looking.
+ *
+ * THE WEIGHTED MEAN IS A MAPLIBRE EXPRESSION, NOT A DATA REWRITE.
+ * Recomputing the score in JS and calling setData on 10,380 features made the
+ * sliders feel laggy — every drag re-parsed and re-uploaded the whole source.
+ * Instead the score is expressed once as an expression tree over the five
+ * per-cell properties, and a slider move only calls setPaintProperty with new
+ * coefficients. Nothing is re-parsed and nothing is re-uploaded.
+ *
+ * MISSING IS NOT ZERO. A cell that was never assessed for a pressure (91.8% of
+ * cells have no WFD classification; 18.1% sit outside the fishing grid) must not
+ * be scored as if that pressure were absent. So the denominator is the sum of
+ * the weights for the pressures that cell ACTUALLY HAS — a weighted mean over
+ * available inputs, not a weighted sum over five slots.
+ */
+function addCompoundLayer(map, layer, beforeId, { card, clearHover }) {
+  const sourceId = `${layer.id}-source`;
+  const fillId = `${layer.id}-fill`;
+  const startVisible = layer.defaultVisible !== false;
+  const keys = layer.pressures.map((p) => p.key);
+
+  // Live weights, shared with the panel sliders and with the hover card.
+  const weights = Object.fromEntries(keys.map((k) => [k, 1]));
+  layer.weights = weights; // the card reads these to show the breakdown
+
+  map.addSource(sourceId, { type: 'geojson', data: layer.data, generateId: true });
+
+  const has = (k) => ['all', ['has', k], ['!=', ['get', k], null]];
+  const scoreExpr = () => {
+    const num = ['+', ...keys.map((k) => ['case', has(k), ['*', weights[k], ['to-number', ['get', k]]], 0])];
+    const den = ['+', ...keys.map((k) => ['case', has(k), weights[k], 0])];
+    // A cell with no data at all, or all weights at zero, scores 0 rather than
+    // dividing by zero.
+    return ['case', ['<=', den, 0], 0, ['/', num, den]];
+  };
+
+  // Band breaks are PERCENTILES OF THE CURRENT SCORE, recomputed whenever the
+  // weights change — see setWeights. Seeded here with equal weights.
+  let breaks = [0.2, 0.4, 0.6, 0.8];
+  const c = layer.paint.colors;
+  const colorExpr = () => ['step', scoreExpr(), c[0], ...breaks.flatMap((b, i) => [b, c[i + 1]])];
+
+  /*
+   * A cell with NO data under the current weighting is drawn TRANSPARENT, not as
+   * the lowest band.
+   *
+   * This matters as soon as a slider is zeroed. Put all the weight on fishing and
+   * the 1,883 cells outside the fishing grid have nothing left to score; rendered
+   * in the palest band they read as "lowest pressure", which is a claim the data
+   * does not support — nobody measured fishing there. Dropping them out entirely
+   * says the honest thing: this cell has no answer under the weighting you chose.
+   */
+  const denExpr = () => ['+', ...keys.map((k) => ['case', has(k), weights[k], 0])];
+  const opacityExpr = () => ['case', ['<=', denExpr(), 0], 0,
+    hoverExpr(layer.paint.fillOpacityHover, layer.paint.fillOpacity)];
+
+  map.addLayer(
+    {
+      id: fillId, type: 'fill', source: sourceId,
+      layout: { visibility: startVisible ? 'visible' : 'none' },
+      paint: {
+        'fill-color': colorExpr(),
+        'fill-opacity': startVisible ? opacityExpr() : 0,
+        'fill-opacity-transition': { duration: FADE_MS }, 'fill-antialias': false,
+      },
+    },
+    beforeId,
+  );
+
+  const controller = makeController(map, {
+    layerIds: [fillId], sourceId, startVisible, card, clearHover,
+    onShow: () => map.setPaintProperty(fillId, 'fill-opacity', opacityExpr()),
+    onHide: () => map.setPaintProperty(fillId, 'fill-opacity', 0),
+  });
+
+  /*
+   * Percentile bands over the CURRENT weighting.
+   *
+   * Fixed 0.2/0.4/… breaks were tried first and are wrong for this layer: as
+   * weights move, the whole score distribution shifts, and a fixed ramp made the
+   * map go uniformly pale or uniformly dark rather than showing where the high
+   * cells were. Recomputing quintile breaks from the actual scores keeps the
+   * ramp meaningful — the darkest band is always "the top fifth under THIS
+   * weighting", which is the only reading the layer can honestly support.
+   */
+  /*
+   * The rows come from the layer's `prepare` step, NOT from a second fetch.
+   * Fetching the 2.3 MB file again here to compute the percentile bands
+   * downloaded it twice — once by MapLibre for the source and once by this
+   * renderer. `prepare` now fetches once and hands back both the parsed
+   * FeatureCollection (used as the source data directly) and the property rows.
+   */
+  const rows = layer.rows ?? [];
+  const recomputeBreaks = () => {
+    if (!rows.length) return;
+    const scores = [];
+    for (const p of rows) {
+      let num = 0, den = 0;
+      for (const k of keys) {
+        const v = p[k];
+        if (v == null) continue;
+        num += weights[k] * v; den += weights[k];
+      }
+      if (den > 0) scores.push(num / den);
+    }
+    if (!scores.length) return;
+    scores.sort((a, b) => a - b);
+    const q = (t) => scores[Math.min(scores.length - 1, Math.floor(scores.length * t))];
+    const next = [q(0.2), q(0.4), q(0.6), q(0.8)];
+    // Strictly increasing, or MapLibre rejects the step expression.
+    for (let i = 1; i < next.length; i++) if (next[i] <= next[i - 1]) next[i] = next[i - 1] + 1e-6;
+    breaks = next;
+  };
+
+  controller.getWeights = () => ({ ...weights });
+  controller.getBreaks = () => [...breaks];
+  controller.setWeights = (next) => {
+    for (const k of keys) if (next[k] != null) weights[k] = Math.max(0, Number(next[k]) || 0);
+    recomputeBreaks();
+    map.setPaintProperty(fillId, 'fill-color', colorExpr());
+    if (controller.isVisible()) map.setPaintProperty(fillId, 'fill-opacity', opacityExpr());
+    layer.onWeights?.(controller.getWeights(), controller.getBreaks());
+  };
+  // Seed the bands from the real distribution, which is already in hand.
+  controller.setWeights(weights);
+
+  // Below every point marker but above the other broad washes.
+  return { controller, queryLayers: [{ id: fillId, priority: 11 }], sourceId, bottomId: fillId };
 }
 
 // SEABED HABITATS (JNCC UKSeaMap). A continuous wash over the whole sea floor,

@@ -74,6 +74,11 @@ const ATTRIBUTION = [
   'Species records: <a href="https://nbnatlas.org" target="_blank" rel="noopener">NBN Atlas</a> contributors',
   'Vessel density (2015 AIS) © <a href="https://www.gov.uk/government/organisations/marine-management-organisation" target="_blank" rel="noopener">MMO</a> &amp; MCA, OGL — © British Crown copyright',
   'Marine licensing &amp; disposal grounds © <a href="https://www.gov.uk/government/organisations/marine-management-organisation" target="_blank" rel="noopener">MMO</a> / <a href="https://www.cefas.co.uk" target="_blank" rel="noopener">Cefas</a>, OGL',
+  // The source's own required credit line for the VMS heatmap, which carries
+  // more contributors than the MMO alone.
+  'Fishing activity (VMS 2019–2022) © <a href="https://www.gov.uk/government/organisations/marine-management-organisation" target="_blank" rel="noopener">MMO</a>, DTU Aqua, JNCC, Natural England &amp; UKHO, OGL — © British Crown copyright',
+  'Wrecks © <a href="https://datahub.admiralty.co.uk" target="_blank" rel="noopener">UK Hydrographic Office</a>, OGL — not for navigation',
+  'Protected wreck sites © <a href="https://historicengland.org.uk" target="_blank" rel="noopener">Historic England</a>, OGL',
 ].join(' · ');
 
 export function createMap(container) {
