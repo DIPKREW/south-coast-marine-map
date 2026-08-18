@@ -22,7 +22,7 @@
  */
 import { el } from './dom.js';
 
-export function buildControlPanel({ layers, groups, controllers, wordmark, tagline, onChange }) {
+export function buildControlPanel({ layers, groups, controllers, wordmark, tagline, onChange, onCopyLink }) {
   const panel = el('section', 'panel', { role: 'region', 'aria-label': `${wordmark} controls` });
   const byId = new Map(layers.map((l) => [l.id, l]));
 
@@ -38,6 +38,39 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
   headText.append(mark, tag);
 
   const actions = el('div', 'panel__actions');
+
+  /*
+   * Copy a link to the current view. Deliberately the smallest possible
+   * affordance — one icon button next to the pin, no share dialog and no social
+   * buttons. Confirmation is a tick on the button itself for a moment, which is
+   * enough feedback without a toast.
+   */
+  const linkBtn = el('button', 'panel__link', { type: 'button' });
+  const linkIcon =
+    '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">' +
+    '<path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+    'd="M6.6 9.4a2.6 2.6 0 0 0 3.7 0l2.3-2.3a2.6 2.6 0 0 0-3.7-3.7l-1 1M9.4 6.6a2.6 2.6 0 0 0-3.7 0L3.4 8.9a2.6 2.6 0 0 0 3.7 3.7l1-1"/>' +
+    '</svg>';
+  const tickIcon =
+    '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">' +
+    '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3.5 8.5l3 3 6-7"/>' +
+    '</svg>';
+  linkBtn.innerHTML = linkIcon;
+  const setLinkLabel = (t) => { linkBtn.setAttribute('aria-label', t); linkBtn.setAttribute('title', t); };
+  setLinkLabel('Copy link to this view');
+  let linkTimer = null;
+  linkBtn.addEventListener('click', async () => {
+    const ok = await onCopyLink?.();
+    clearTimeout(linkTimer);
+    linkBtn.innerHTML = ok ? tickIcon : linkIcon;
+    linkBtn.classList.toggle('is-done', !!ok);
+    setLinkLabel(ok ? 'Link copied' : 'Could not copy — select the address bar instead');
+    linkTimer = setTimeout(() => {
+      linkBtn.innerHTML = linkIcon;
+      linkBtn.classList.remove('is-done');
+      setLinkLabel('Copy link to this view');
+    }, 1800);
+  });
 
   // Pin: while active, map interaction no longer collapses the panel. Manual
   // collapse via the chevron is deliberately unaffected.
@@ -58,7 +91,7 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
   });
   collapseBtn.appendChild(el('span', 'panel__collapse-icon', { 'aria-hidden': 'true' }));
 
-  actions.append(pinBtn, collapseBtn);
+  actions.append(linkBtn, pinBtn, collapseBtn);
   head.append(headText, actions);
   panel.appendChild(head);
 

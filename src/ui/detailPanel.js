@@ -25,7 +25,7 @@
  */
 import { el } from './dom.js';
 
-export function buildDetailPanel({ layers, groups, controllers }) {
+export function buildDetailPanel({ layers, groups, controllers, onStateChange }) {
   const panel = el('aside', 'detail', { 'aria-label': 'Layer details', 'aria-live': 'polite' });
   const body = el('div', 'detail__body');
   panel.appendChild(body);
@@ -73,9 +73,9 @@ export function buildDetailPanel({ layers, groups, controllers }) {
     // Special controls first, then legend, then About — the same reading order
     // these had when they were inline in the main panel. Only the About block
     // collapses; the legend and the controls are short and stay visible.
-    if (layer.pressures && controller.setWeights) section.appendChild(buildWeightSliders(layer, controller));
+    if (layer.pressures && controller.setWeights) section.appendChild(buildWeightSliders(layer, controller, onStateChange));
     if (layer.species && controller.setSpecies) section.appendChild(buildSelector(layer, controller));
-    if (layer.species && controller.setChecked) section.appendChild(buildSpeciesChecklist(layer, controller));
+    if (layer.species && controller.setChecked) section.appendChild(buildSpeciesChecklist(layer, controller, onStateChange));
     if (layer.legend) section.appendChild(buildLegend(layer.legend));
     const about = layer.about ? buildAbout(layer.about) : null;
     if (about) section.appendChild(about.el);
@@ -210,7 +210,7 @@ function buildLegend(items) {
  * does now. Ticking a species is still what fetches it, so an untouched list
  * still costs nothing.
  */
-function buildSpeciesChecklist(layer, controller) {
+function buildSpeciesChecklist(layer, controller, onStateChange) {
   const root = el('div', 'detail__checklist');
 
   const headBtn = el('button', 'detail__checklist-head', { type: 'button', 'aria-expanded': 'false' });
@@ -255,6 +255,7 @@ function buildSpeciesChecklist(layer, controller) {
       box.addEventListener('change', () => {
         controller.setChecked(sp.key, box.checked);
         renderCount();
+        onStateChange?.();
       });
 
       row.append(box, sw, text);
@@ -297,7 +298,7 @@ function buildSpeciesChecklist(layer, controller) {
  * `input` fires continuously during a drag, and the renderer only calls
  * setPaintProperty, so the map follows the thumb without a re-parse.
  */
-function buildWeightSliders(layer, controller) {
+function buildWeightSliders(layer, controller, onStateChange) {
   const root = el('div', 'detail__weights');
 
   const head = el('div', 'detail__weights-head');
@@ -330,8 +331,14 @@ function buildWeightSliders(layer, controller) {
     input.addEventListener('input', () => {
       out.textContent = Number(input.value).toFixed(1);
       controller.setWeights({ [pr.key]: Number(input.value) });
+      onStateChange?.();
     });
-    out.textContent = '1.0';
+    // Seeded from the CONTROLLER, not hardcoded, so a weight restored from the
+    // URL before the panel is built shows up on the slider rather than silently
+    // disagreeing with the map.
+    const start = controller.getWeights?.()[pr.key] ?? 1;
+    input.value = String(start);
+    out.textContent = Number(start).toFixed(1);
     row.append(lab, input);
     root.appendChild(row);
     rows.push({ key: pr.key, input, out });
@@ -341,6 +348,7 @@ function buildWeightSliders(layer, controller) {
     const eq = {};
     for (const r of rows) { r.input.value = '1'; r.out.textContent = '1.0'; eq[r.key] = 1; }
     controller.setWeights(eq);
+    onStateChange?.();
   });
 
   return root;

@@ -179,6 +179,41 @@ body.is-ready .maplibregl-map {
   margin: 0;
 }
 
+
+/* Copy-link button — same quiet weight as the pin, tick on success. */
+.panel__link {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--ink-muted);
+  cursor: pointer;
+  opacity: 0.75;
+  transition: color 160ms ease, background-color 160ms ease, opacity 160ms ease;
+}
+.panel__link:hover {
+  color: var(--ink);
+  background: var(--hairline);
+  opacity: 1;
+}
+.panel__link:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+.panel__link.is-done {
+  color: var(--accent-2-strong);
+  opacity: 1;
+}
+/* Meaningless once the panel is a tab, like the pin. */
+.panel.is-collapsed .panel__link {
+  display: none;
+}
+
 /* The pin is meaningless once the panel is a tab — hide it while collapsed. */
 .panel.is-collapsed .panel__pin {
   display: none;

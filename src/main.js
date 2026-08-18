@@ -7,6 +7,7 @@ import { applyDataLayers } from './map/dataLayers.js';
 import { dataLayers, panelGroups } from './map/layers.js';
 import { buildControlPanel } from './ui/controlPanel.js';
 import { buildDetailPanel } from './ui/detailPanel.js';
+import { readUrlState, applyUrlState, wireUrlState } from './ui/urlState.js';
 
 // Palette → CSS custom properties, so CSS and the map style share one source.
 applyTokens();
@@ -19,7 +20,28 @@ if (import.meta.env.DEV) window.__map = map;
 map.on('load', () => {
   const controllers = applyDataLayers(map, dataLayers);
 
-  const detail = buildDetailPanel({ layers: dataLayers, groups: panelGroups, controllers });
+  /*
+   * The opening frame, captured BEFORE any URL state is applied. It is the
+   * reference for "has the viewport moved?", which is what keeps a link to the
+   * default view free of a `v=` parameter.
+   */
+  const home = { center: [map.getCenter().lng, map.getCenter().lat], zoom: map.getZoom() };
+
+  /*
+   * Restore BEFORE the panels are built. The panels read their initial state
+   * from the controllers — a toggle's checked state, the species checklist's
+   * ticks, each slider's starting value — so applying the URL first means the
+   * controls come up already agreeing with the map, with nothing to re-sync.
+   */
+  applyUrlState(readUrlState(), { map, layers: dataLayers, controllers });
+
+  let url = null; // assigned once the map and panels exist
+  const bumpUrl = () => url?.schedule();
+
+  const detail = buildDetailPanel({
+    layers: dataLayers, groups: panelGroups, controllers,
+    onStateChange: bumpUrl,
+  });
 
   // Held in a variable rather than closed over directly: a layer whose data is
   // already cached can call back synchronously while buildControlPanel is still
@@ -35,7 +57,18 @@ map.on('load', () => {
     tagline: "Marine protected areas from Land's End to Beachy Head",
     // Fires on every toggle, on collapse/expand, and when a late-loading layer
     // becomes ready or unavailable — everything the detail panel reacts to.
-    onChange: syncDetail,
+    onChange: () => { syncDetail(); bumpUrl(); },
+    onCopyLink: async () => {
+      try {
+        await navigator.clipboard.writeText(url ? url.current() : window.location.href);
+        return true;
+      } catch (err) {
+        // Clipboard access can be refused (insecure context, denied permission).
+        // The button says so rather than pretending it worked.
+        console.warn('[url] clipboard write failed:', err?.message || err);
+        return false;
+      }
+    },
   });
   panelHandle = panel;
 
@@ -46,6 +79,9 @@ map.on('load', () => {
   app.append(detail.el, panel.el);
 
   syncDetail();
+
+  // Keep the address bar in step from here on: debounced, replaceState only.
+  url = wireUrlState({ map, layers: dataLayers, controllers, home });
 
   wireAutoCollapse(map, panel);
 
