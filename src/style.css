@@ -426,6 +426,45 @@ body.is-ready .maplibregl-map {
 }
 
 
+/* ---- Preset view buttons -------------------------------------------- */
+
+/* Sits above the first toggle group, which supplies its own top divider. */
+.presets {
+  margin-bottom: 2px;
+}
+
+.presets__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.presets__btn {
+  flex: 1 1 auto;
+  padding: 6px 9px;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+.presets__btn:hover {
+  border-color: var(--ink-muted);
+  background: var(--surface);
+}
+.presets__btn:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+.presets__btn:active {
+  background: var(--hairline);
+}
+
 /* Each layer group sits under a hairline divider with its own heading. */
 .panel__group {
   border-top: 1px solid var(--hairline);

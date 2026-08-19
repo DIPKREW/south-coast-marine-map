@@ -25,6 +25,8 @@ import { el } from './dom.js';
 export function buildControlPanel({ layers, groups, controllers, wordmark, tagline, onChange, onCopyLink, searchEl }) {
   const panel = el('section', 'panel', { role: 'region', 'aria-label': `${wordmark} controls` });
   const byId = new Map(layers.map((l) => [l.id, l]));
+  // layer id -> the same apply() a click on that row runs.
+  const toggles = new Map();
 
   const notify = () => onChange?.();
 
@@ -111,6 +113,11 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
   const body = el('div', 'panel__body', { id: bodyId });
   panel.appendChild(body);
 
+  // Presets sit at the TOP of the scrolling body, above the toggle groups —
+  // the first thing a visitor arriving cold sees. Appended here but wired after
+  // the toggles exist, since it needs their apply() handles.
+  const presetsSlot = el('div', 'presets-slot');
+  body.appendChild(presetsSlot);
 
   // ---- Layer toggles, grouped ----
   const groupDefs = groups?.length ? groups : [{ label: 'Layers', layerIds: layers.map((l) => l.id) }];
@@ -135,7 +142,9 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
       const controller = layer && controllers.get(id);
       if (!controller) return;
       groupIds.push(id);
-      into.appendChild(buildToggle(layer, controller, runSyncers));
+      const t = buildToggle(layer, controller, runSyncers);
+      toggles.set(id, t.apply);
+      into.appendChild(t.row);
     };
 
     for (const id of group.layerIds) addLayerControls(id, section);
@@ -222,14 +231,81 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
   collapseBtn.addEventListener('click', () => setCollapsed(!collapsed));
   apply();
 
+  /**
+   * Switch the panel to exactly this set of layers — REPLACE semantics: anything
+   * on and not listed is switched off. `keep` names layers presets must never
+   * touch (rivers & waterways, which is the map's base context).
+   *
+   * Every layer goes through its own row's apply(), one after another, which is
+   * the same sequence a person clicking each toggle in turn would produce.
+   */
+  const applyLayers = (wantOn, { keep = [] } = {}) => {
+    const want = new Set(wantOn);
+    const skip = new Set(keep);
+    let changed = 0;
+    for (const [id, apply] of toggles) {
+      if (skip.has(id)) continue;
+      if (apply(want.has(id))) changed++;
+    }
+    return changed;
+  };
+
+  presetsSlot.appendChild(buildPresets(applyLayers));
 
   return {
     el: panel,
+    applyLayers,
     collapse: () => setCollapsed(true),
     expand: () => setCollapsed(false),
     isCollapsed: () => collapsed,
     isPinned: () => pinned,
   };
+}
+
+/*
+ * PRESET VIEWS — one click for a themed combination of layers.
+ *
+ * REPLACE semantics: activating a preset switches off everything not in it. The
+ * one exception is rivers & waterways, the map's base context and the only
+ * default-on layer; presets never touch it.
+ *
+ * Presets hold NO state of their own. They are a shortcut for a sequence of
+ * toggle clicks and nothing more, which is why nothing here writes to the URL,
+ * the second panel, or any layer directly — applyLayers() runs each row's own
+ * apply(), and the existing machinery follows exactly as it does for a click.
+ *
+ * Deliberately excluded from every preset: the compound pressure indicator (an
+ * analysis layer with its own weighting, not a raw view) and marine species
+ * (useless until the viewer picks species from the checklist).
+ */
+const PRESETS = [
+  { id: 'water', label: 'Water quality', layers: ['wfd', 'storm-annual', 'storm-live'] },
+  { id: 'pressure', label: 'Human pressure', layers: ['fisheries', 'recreational', 'licensing'] },
+  { id: 'habitat', label: 'Protection & habitat', layers: ['marine', 'seabed'] },
+];
+
+// Rivers & waterways is the base context every view is read against, so it is
+// held out of the replace.
+const PRESET_KEEP = ['water'];
+
+function buildPresets(applyLayers) {
+  const root = el('div', 'presets');
+  const heading = el('p', 'panel__section-label');
+  heading.textContent = 'Preset views';
+  root.appendChild(heading);
+
+  const row = el('div', 'presets__row');
+  for (const p of PRESETS) {
+    const b = el('button', 'presets__btn', { type: 'button' });
+    b.textContent = p.label;
+    b.setAttribute('title', `Show only: ${p.layers.join(', ')}`);
+    b.addEventListener('click', () => applyLayers(p.layers, { keep: PRESET_KEEP }));
+    row.appendChild(b);
+  }
+
+
+  root.appendChild(row);
+  return root;
 }
 
 function buildToggle(layer, controller, onChange) {
@@ -255,12 +331,39 @@ function buildToggle(layer, controller, onChange) {
   const track = el('span', 'toggle__track', { 'aria-hidden': 'true' });
   track.appendChild(el('span', 'toggle__thumb'));
 
-  input.addEventListener('change', () => {
-    if (input.checked) controller.show();
+  /*
+   * THE ONE PATH a layer is switched through.
+   *
+   * The DOM listener below and the preset buttons both call this, so a preset is
+   * not a parallel route into the same state — it is literally the same function
+   * a click runs. That matters because the controller alone is not enough: it
+   * drives lazy loading and the paired-layer wiring, but the checkbox's own
+   * checked/aria state and the `onChange` that re-syncs the second panel and the
+   * URL are set HERE. Calling controller.show() directly would leave the tick
+   * box wrong and the second panel stale.
+   *
+   * Returns whether anything actually changed, so a caller can tell a real
+   * switch from a no-op re-application.
+   */
+  const apply = (want) => {
+    if (input.disabled) return false;
+    // Already in the wanted state: correct the box if it drifted, but do not
+    // touch the controller — that is what makes re-applying a preset free of
+    // any refetch.
+    if (controller.isVisible() === want) {
+      input.checked = want;
+      input.setAttribute('aria-checked', String(want));
+      return false;
+    }
+    input.checked = want;
+    if (want) controller.show();
     else controller.hide();
-    input.setAttribute('aria-checked', String(input.checked));
+    input.setAttribute('aria-checked', String(want));
     onChange?.();
-  });
+    return true;
+  };
+
+  input.addEventListener('change', () => apply(input.checked));
 
   // Layers that finish setting up after the panel is built (e.g. the PMTiles
   // fetch): re-sync when ready; grey the row out on failure.
@@ -274,7 +377,7 @@ function buildToggle(layer, controller, onChange) {
   });
 
   row.append(text, input, track);
-  return row;
+  return { row, apply };
 }
 
 /** The group-level drop-down described above. Per-layer About lives elsewhere. */
