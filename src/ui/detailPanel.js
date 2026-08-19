@@ -46,6 +46,14 @@ export function buildDetailPanel({ layers, groups, controllers, onStateChange })
 
   // id → { el, isOn } for every section that exists.
   const sections = [];
+  /*
+   * Everything that must go back to its page-load value when Clear is pressed.
+   * Each entry is the section's OWN reset closure, so resetting runs the same
+   * code the user's own controls run — the checklist's box handler, the slider
+   * group's existing "Reset to equal" — rather than a second route into the
+   * same state.
+   */
+  const resetters = [];
 
   for (const id of order) {
     const layer = byId.get(id);
@@ -73,14 +81,23 @@ export function buildDetailPanel({ layers, groups, controllers, onStateChange })
     // Special controls first, then legend, then About — the same reading order
     // these had when they were inline in the main panel. Only the About block
     // collapses; the legend and the controls are short and stay visible.
-    if (layer.pressures && controller.setWeights) section.appendChild(buildWeightSliders(layer, controller, onStateChange));
+    if (layer.pressures && controller.setWeights) {
+      const w = buildWeightSliders(layer, controller, onStateChange);
+      section.appendChild(w.el);
+      resetters.push(w.reset);
+    }
     if (layer.species && controller.setSpecies) section.appendChild(buildSelector(layer, controller));
-    if (layer.species && controller.setChecked) section.appendChild(buildSpeciesChecklist(layer, controller, onStateChange));
+    if (layer.species && controller.setChecked) {
+      const cl = buildSpeciesChecklist(layer, controller, onStateChange);
+      section.appendChild(cl.el);
+      resetters.push(cl.reset);
+    }
     if (layer.legend) section.appendChild(buildLegend(layer.legend));
     const about = layer.about ? buildAbout(layer.about) : null;
     if (about) section.appendChild(about.el);
 
     body.appendChild(section);
+    if (about) resetters.push(() => about.close());
     sections.push({
       el: section,
       about,
@@ -121,7 +138,15 @@ export function buildDetailPanel({ layers, groups, controllers, onStateChange })
     panel.inert = !(any && !collapsed);
   };
 
-  return { el: panel, sync };
+  /**
+   * Return every section to its page-load state: species unticked, weights
+   * equal, disclosures closed. Layer visibility is NOT touched here — that goes
+   * through the control panel's applyLayers, so Clear has exactly one route into
+   * layer state and this handles only the state that outlives a toggle.
+   */
+  const reset = () => resetters.forEach((fn) => fn());
+
+  return { el: panel, sync, reset };
 }
 
 /**
@@ -224,6 +249,7 @@ function buildSpeciesChecklist(layer, controller, onStateChange) {
   const bodyEl = el('div', 'detail__checklist-body');
   const inner = el('div', 'detail__checklist-inner');
 
+  const boxes = [];
   const groups = layer.speciesGroups?.length ? layer.speciesGroups : [{ key: null, label: null }];
 
   for (const g of groups) {
@@ -252,11 +278,16 @@ function buildSpeciesChecklist(layer, controller, onStateChange) {
       sci.textContent = sp.sci;
       text.append(common, sci);
 
-      box.addEventListener('change', () => {
-        controller.setChecked(sp.key, box.checked);
+      // One path for a click and for a programmatic reset.
+      const applyBox = (want) => {
+        if (box.checked === want && controller.isChecked(sp.key) === want) return;
+        box.checked = want;
+        controller.setChecked(sp.key, want);
         renderCount();
         onStateChange?.();
-      });
+      };
+      box.addEventListener('change', () => applyBox(box.checked));
+      boxes.push(applyBox);
 
       row.append(box, sw, text);
       inner.appendChild(row);
@@ -283,7 +314,24 @@ function buildSpeciesChecklist(layer, controller, onStateChange) {
   });
   apply();
 
-  return root;
+  return {
+    el: root,
+    /*
+     * Page-load state for this control: nothing ticked, disclosure closed.
+     *
+     * Ticks are cleared through each box's own applyBox(), the same closure a
+     * click on that box runs, so the controller, the count label and the URL all
+     * update exactly as if the user had unticked all eighteen by hand.
+     *
+     * Deliberately NOT what presets do: presets leave ticks alone so a species
+     * selection survives switching views. Clear is the one action that wipes.
+     */
+    reset: () => {
+      boxes.forEach((applyBox) => applyBox(false));
+      open = false;
+      apply();
+    },
+  };
 }
 
 
@@ -344,14 +392,17 @@ function buildWeightSliders(layer, controller, onStateChange) {
     rows.push({ key: pr.key, input, out });
   }
 
-  reset.addEventListener('click', () => {
+  const toEqual = () => {
     const eq = {};
     for (const r of rows) { r.input.value = '1'; r.out.textContent = '1.0'; eq[r.key] = 1; }
     controller.setWeights(eq);
     onStateChange?.();
-  });
+  };
+  reset.addEventListener('click', toEqual);
 
-  return root;
+  // Equal weighting IS the page-load state, so Clear reuses the same closure the
+  // visible "Reset to equal" button runs.
+  return { el: root, reset: toEqual };
 }
 
 /**

@@ -22,7 +22,7 @@
  */
 import { el } from './dom.js';
 
-export function buildControlPanel({ layers, groups, controllers, wordmark, tagline, onChange, onCopyLink, searchEl }) {
+export function buildControlPanel({ layers, groups, controllers, wordmark, tagline, onChange, onCopyLink, searchEl, onClear }) {
   const panel = el('section', 'panel', { role: 'region', 'aria-label': `${wordmark} controls` });
   const byId = new Map(layers.map((l) => [l.id, l]));
   // layer id -> the same apply() a click on that row runs.
@@ -250,7 +250,11 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
     return changed;
   };
 
-  presetsSlot.appendChild(buildPresets(applyLayers));
+  presetsSlot.appendChild(buildPresets(applyLayers, () => {
+    // The pin is panel state, so it is reset here rather than by the caller.
+    if (pinned) { pinned = false; applyPin(); }
+    onClear?.();
+  }));
 
   return {
     el: panel,
@@ -288,7 +292,7 @@ const PRESETS = [
 // held out of the replace.
 const PRESET_KEEP = ['water'];
 
-function buildPresets(applyLayers) {
+function buildPresets(applyLayers, onClear) {
   const root = el('div', 'presets');
   const heading = el('p', 'panel__section-label');
   heading.textContent = 'Preset views';
@@ -303,6 +307,25 @@ function buildPresets(applyLayers) {
     row.appendChild(b);
   }
 
+  /*
+   * CLEAR — back to page-load state.
+   *
+   * Layers go through the same applyLayers() the presets use, with an empty
+   * want-set, so "everything off except rivers" is one more application of the
+   * same path rather than a special case. What makes Clear different from a
+   * preset is onClear(), which also wipes the state that deliberately SURVIVES
+   * preset use: species ticks, slider weights, the pin, open disclosures.
+   *
+   * Subdued styling because it is a reset, not a fourth view.
+   */
+  const clear = el('button', 'presets__btn presets__btn--clear', { type: 'button' });
+  clear.textContent = 'Clear';
+  clear.setAttribute('title', 'Turn every layer off and reset to the opening view');
+  clear.addEventListener('click', () => {
+    applyLayers([], { keep: PRESET_KEEP });
+    onClear?.();
+  });
+  row.appendChild(clear);
 
   root.appendChild(row);
   return root;

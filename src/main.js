@@ -64,6 +64,31 @@ map.on('load', () => {
     // Fires on every toggle, on collapse/expand, and when a late-loading layer
     // becomes ready or unavailable — everything the detail panel reacts to.
     onChange: () => { syncDetail(); bumpUrl(); },
+    /*
+     * Clear resets the state that outlives a toggle — species ticks, slider
+     * weights, open disclosures — and flies the map back to the opening view.
+     * Layer visibility is handled inside the panel by the same applyLayers()
+     * the presets use.
+     *
+     * The destination is `home`, captured once above from the map itself after
+     * createMap's fitBounds settled. That is deliberately the SAME object
+     * urlState compares against to decide whether to emit `v=`, so flying back
+     * to it necessarily produces a bare URL — the two cannot drift apart the way
+     * a second hard-coded copy of the centre and zoom would.
+     */
+    onClear: () => {
+      detail.reset();
+      // Only fly if we are actually away from home, using urlState's own
+      // tolerance, so Clear at the default view stays a true no-op.
+      const c = map.getCenter();
+      const away =
+        Math.abs(map.getZoom() - home.zoom) > 0.01 ||
+        Math.abs(c.lat - home.center[1]) > 1e-4 ||
+        Math.abs(c.lng - home.center[0]) > 1e-4;
+      if (away) map.flyTo({ center: home.center, zoom: home.zoom, speed: 1.4, essential: true });
+      syncDetail();
+      bumpUrl();
+    },
     onCopyLink: async () => {
       try {
         await navigator.clipboard.writeText(url ? url.current() : window.location.href);

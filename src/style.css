@@ -465,6 +465,20 @@ body.is-ready .maplibregl-map {
   background: var(--hairline);
 }
 
+/* Clear is a reset, not a fourth view — quieter, and it does not stretch to
+   share the row equally with the three presets. */
+.presets__btn--clear {
+  flex: 0 0 auto;
+  color: var(--ink-muted);
+  background: none;
+  border-style: dashed;
+}
+.presets__btn--clear:hover {
+  color: var(--ink);
+  border-style: solid;
+  background: var(--surface);
+}
+
 /* Each layer group sits under a hairline divider with its own heading. */
 .panel__group {
   border-top: 1px solid var(--hairline);
