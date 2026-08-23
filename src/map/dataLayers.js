@@ -808,11 +808,20 @@ function addBathingLayer(map, layer, beforeId, { card, clearHover }) {
     'Poor', c.Poor,
     c.none,
   ];
-  // Worse draws later, so it draws on top.
+  /*
+   * DRAW ORDER — by how much the marker deserves to be seen, not by quality.
+   *
+   * Poor and Sufficient go on top, because they are the only actionable states
+   * and there are ten of them against 179 others. NOT ASSESSED sits third,
+   * ABOVE Excellent and Good: it is the rarest state on the map (four sites) and
+   * it was originally sorted to the very bottom, which buried East Beach at West
+   * Bay under its Excellent neighbour 396 m away at every zoom below ~12.5.
+   * The rare, informative marker should not be the one that loses.
+   */
   const sortKey = [
     'match', ['get', 'cls'],
-    'Poor', 4, 'Sufficient', 3, 'Good', 2, 'Excellent', 1,
-    0,
+    'Poor', 4, 'Sufficient', 3, 'Good', 1, 'Excellent', 0,
+    2, // not assessed
   ];
 
   // Zoom-interpolated radii. A zoom expression may only sit at the top level of
@@ -820,7 +829,19 @@ function addBathingLayer(map, layer, beforeId, { card, clearHover }) {
   // pre-offset rather than being derived from the inner one.
   const RING_GAP = 2.6;
   const lift = ['case', hb, 1.32, 1];
-  const stops = [7, 3, 10, 4.2, 13, 6, 16, 7.6];
+  /*
+   * MARKER SIZE. Raised from [7:3, 10:4.2, 13:6, 16:7.6] because the earlier
+   * size was too small to read a classification colour off — the core was 8.4px
+   * across at z10, and four steps of anything are not separable at that size.
+   *
+   * The low-zoom stop is left almost alone. At z7–z8 the 193 markers already
+   * overlap (92% of them have a neighbour closer than a marker width at z7,
+   * with the OLD radius), so growth there buys nothing and costs clutter; the
+   * layer honestly reads as distribution rather than classification until about
+   * z10. The growth is concentrated where colour is actually read: z10 8.4→11.6px
+   * across, z13 12→17.6px.
+   */
+  const stops = [7, 3.2, 10, 5.8, 13, 8.8, 16, 11.5];
   const radius = (offset) => [
     'interpolate', ['linear'], ['zoom'],
     ...stops.flatMap((v, i) => (i % 2 === 0 ? [v] : [['*', v + offset, lift]])),

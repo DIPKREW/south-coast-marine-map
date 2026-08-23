@@ -533,7 +533,16 @@ const allDataLayers = [
      */
     kind: 'bathing',
     data: `${base}data/bathing-waters.geojson`,
-    accentVar: 'bw-sufficient',
+    /*
+     * The layer accent colours the toggle, the card's edge bar and its subtitle
+     * text. It is deliberately the marker's dark HAIRLINE rather than a colour
+     * from the ramp. Two reasons: the mid-ramp amber that convention would pick
+     * scores 1.76:1 against the card surface, which is unreadable as 11px text;
+     * and any ramp colour puts a quality judgement on every card, so a Poor site
+     * would carry a green or amber subtitle. Neutral charcoal is 9:1 and says
+     * nothing about the site. Same move as the wrecks layer's near-black.
+     */
+    accentVar: 'bw-ring',
     defaultVisible: false,
     paint: {
       colors: {
@@ -557,7 +566,7 @@ const allDataLayers = [
       title: 'About bathing waters',
       body: [
         'THIS LAYER SHOWS WHERE BATHING IS DESIGNATED, NOT WATER QUALITY ALONG THIS COAST. The Environment Agency designates a bathing water where large numbers of people are expected to bathe, so these 193 sites gather on resort beaches and estuary shores and leave long stretches of coast unmarked. 180 km of open coast here is more than 5 km from any of them — the Lizard, Start Point to Hallsands, Chesil Beach, the Polperro cliffs. Estuaries and harbours are thinner still: only 35% of that shoreline is within 3 km of a site. A blank stretch means nobody is counted as bathing there, not that the water is clean.',
-        '"EXCELLENT" IS A FOUR-YEAR AGGREGATE, NOT A STATEMENT ABOUT TODAY. Each classification is calculated annually from the previous four bathing seasons, so the 2025 figures here are built from 2022–2025 samples. A site can be Excellent and still have bad days, and this layer does not carry the daily pollution risk forecast, which is a separate thing published only in the bathing season.',
+        'THE COLOUR IS A FOUR-YEAR AGGREGATE CLASSIFICATION, NOT CURRENT CONDITION. A GREEN MARKER IS NOT A STATEMENT THAT THE WATER IS CLEAN TODAY. Each classification is calculated annually from the previous four bathing seasons, so the 2025 figures here are built from 2022–2025 samples. A site can be Excellent and still have bad days, and this layer does not carry the daily pollution risk forecast, which is a separate thing published only in the bathing season.',
         'Of the 193 sites, 149 are Excellent, 30 Good, 2 Sufficient and 8 Poor. Four more were designated in 2026 and have never been classified: they are drawn as empty markers rather than given a colour, because "not assessed" is not a fifth quality band.',
         'The series on each card runs 2015–2025 and stops there deliberately. EA also publishes 1988–2014 under the previous directive, whose values (Fail, Imperative, Guideline) come from a different instrument with a different pass mark — charting the two as one line would invent a trend. A dash marks a year EA did not assess the site; every site that existed in 2020 carries one, because there was no bathing season monitoring programme that year.',
         'WHERE A CARD NAMES STORM OVERFLOWS, THAT IS A PERMIT CONDITION AND NOT A MEASURED EFFECT. EA’s Event Duration Monitoring return records which overflows are required to monitor because of a named bathing water: 138 of these 193 sites have at least one, 641 links in all. The other 55 have none, which means no overflow near them carries that requirement — not that nothing discharges nearby. Nothing in this data says an overflow’s discharge reaches a particular beach.',
