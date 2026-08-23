@@ -623,7 +623,7 @@ const allDataLayers = [
     about: {
       title: 'About annual spill data',
       body: [
-        "Every storm overflow in England carries an event duration monitor, and once a year the water companies report to the Environment Agency how many times each one discharged and for how long. This is that return for 2025 — the most recent published — for the 2,422 overflows in the mapped area, which together recorded 65,288 spills. 359 of them recorded none at all; the busiest spilled 243 times.",
+        "Every storm overflow in England carries an event duration monitor, and once a year the water companies report to the Environment Agency how many times each one discharged and for how long. This is that return for 2025 — the most recent published — for the 1,903 overflows in the mapped area, which together recorded 49,599 spills. 304 of them recorded none at all; the busiest spilled 243 times.",
         'A spill is counted by the 12–24 hour method, so one long discharge counts once rather than continuously. Count and duration therefore answer different questions and are best read together: an overflow with few but very long spills looks calm on count alone.',
         'A monitor that ran for only part of the year still reports, so a low count can mean a quiet outfall or a patchy monitor. The hover card shows how much of the year each monitor was actually operating.',
       ],
