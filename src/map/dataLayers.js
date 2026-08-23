@@ -41,7 +41,7 @@ export function applyDataLayers(map, layers) {
   const registry = []; // { layer, queryId, sourceId, sourceLayer, priority } per hit-test layer
   let beforeId; // insertion anchor — keeps earlier layers on top
 
-  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, wfd: addWfdLayer, seabed: addSeabedLayer, marinemarkers: addMarineMarkersLayer, density: addDensityLayer, licensing: addLicensingLayer, wrecks: addWrecksLayer, compound: addCompoundLayer, todo: addTodoLayer };
+  const adders = { point: addPointLayer, mixed: addMixedLayer, waterways: addWaterwaysLayer, choropleth: addChoroplethLayer, croptiles: addCropTilesLayer, speciesgrid: addSpeciesGridLayer, marine: addMarineLayer, erosion: addErosionLayer, spills: addSpillLayer, liveoverflow: addLiveOverflowLayer, bathing: addBathingLayer, wfd: addWfdLayer, seabed: addSeabedLayer, marinemarkers: addMarineMarkersLayer, density: addDensityLayer, licensing: addLicensingLayer, wrecks: addWrecksLayer, compound: addCompoundLayer, todo: addTodoLayer };
   for (const layer of layers) {
     const add = adders[layer.kind] || addPolygonLayer;
     // A layer that starts hidden is DEFERRED: neither its source nor its layers
@@ -765,6 +765,152 @@ function addSpillLayer(map, layer, beforeId, { card, clearHover }) {
 
   // Point markers beat every area layer at the same spot.
   return { controller, queryLayers: [{ id: dotId, priority: 56 }], sourceId, bottomId: dotId };
+}
+
+/**
+ * DESIGNATED BATHING WATERS (Environment Agency). One marker per site, coloured
+ * by the current classification.
+ *
+ * THE MARKER IS THREE RINGS, and that is the point. Every bathing water is drawn
+ * as a dark hairline around a thick cream halo around a coloured core. The
+ * palette on this map has no unused hue left, and these markers sit at the
+ * shoreline directly beside the storm overflow dots and on top of the WFD water
+ * body fills — so layer identity is carried by the SILHOUETTE rather than by
+ * colour alone. The cream halo is also what keeps the core legible over any wash
+ * underneath it. Same reasoning as the protected wreck rings.
+ *
+ * NOT ASSESSED IS OFF THE RAMP. A site with no classification is filled with
+ * paper, so it reads as an EMPTY marker — "no answer" — rather than as a fifth
+ * quality band sitting below Poor. Four corridor sites are in this state, all
+ * designated in 2026 and never yet classified.
+ *
+ * `circle-sort-key` puts the worse classifications on top: with 149 of 193 sites
+ * Excellent, the ten that are Sufficient or Poor must not end up underneath
+ * their neighbours at low zoom.
+ */
+function addBathingLayer(map, layer, beforeId, { card, clearHover }) {
+  const sourceId = `${layer.id}-source`;
+  const dotId = `${layer.id}-dot`;
+  const ringId = `${layer.id}-ring`;
+  const labelId = `${layer.id}-label`;
+  const startVisible = layer.defaultVisible !== false;
+  const hb = ['boolean', ['feature-state', 'hover'], false];
+  const c = layer.paint.colors;
+
+  map.addSource(sourceId, { type: 'geojson', data: layer.data, generateId: true });
+
+  // Classification → core colour. The fallback (no `cls` at all) is paper.
+  const fill = [
+    'match', ['get', 'cls'],
+    'Excellent', c.Excellent,
+    'Good', c.Good,
+    'Sufficient', c.Sufficient,
+    'Poor', c.Poor,
+    c.none,
+  ];
+  // Worse draws later, so it draws on top.
+  const sortKey = [
+    'match', ['get', 'cls'],
+    'Poor', 4, 'Sufficient', 3, 'Good', 2, 'Excellent', 1,
+    0,
+  ];
+
+  // Zoom-interpolated radii. A zoom expression may only sit at the top level of
+  // a paint property, so the outer ring gets its own interpolate with every stop
+  // pre-offset rather than being derived from the inner one.
+  const RING_GAP = 2.6;
+  const lift = ['case', hb, 1.32, 1];
+  const stops = [7, 3, 10, 4.2, 13, 6, 16, 7.6];
+  const radius = (offset) => [
+    'interpolate', ['linear'], ['zoom'],
+    ...stops.flatMap((v, i) => (i % 2 === 0 ? [v] : [['*', v + offset, lift]])),
+  ];
+
+  map.addLayer(
+    {
+      id: dotId, type: 'circle', source: sourceId,
+      layout: { visibility: startVisible ? 'visible' : 'none', 'circle-sort-key': sortKey },
+      paint: {
+        'circle-color': fill,
+        'circle-radius': radius(0),
+        // The cream halo — thick, so the core never touches whatever is beneath.
+        'circle-stroke-color': palette.surface,
+        'circle-stroke-width': hoverExpr(3, 2.4),
+        'circle-opacity': startVisible ? 1 : 0,
+        'circle-stroke-opacity': startVisible ? 0.95 : 0,
+        'circle-radius-transition': { duration: 150 },
+        'circle-opacity-transition': { duration: FADE_MS },
+        'circle-stroke-opacity-transition': { duration: FADE_MS },
+      },
+    },
+    beforeId,
+  );
+
+  // The outer hairline. Fill is fully transparent, so this is a ring and nothing
+  // else — it never covers the core or the halo it encircles.
+  map.addLayer(
+    {
+      id: ringId, type: 'circle', source: sourceId,
+      layout: { visibility: startVisible ? 'visible' : 'none', 'circle-sort-key': sortKey },
+      paint: {
+        'circle-color': 'rgba(0,0,0,0)',
+        'circle-opacity': 0,
+        'circle-radius': radius(RING_GAP),
+        'circle-stroke-color': palette['bw-ring'],
+        'circle-stroke-width': hoverExpr(1.5, 1),
+        'circle-stroke-opacity': startVisible ? 0.85 : 0,
+        'circle-radius-transition': { duration: 150 },
+        'circle-stroke-opacity-transition': { duration: FADE_MS },
+      },
+    },
+    beforeId,
+  );
+
+  map.addLayer(
+    {
+      id: labelId, type: 'symbol', source: sourceId,
+      minzoom: 11,
+      layout: {
+        visibility: startVisible ? 'visible' : 'none',
+        'text-field': ['get', 'name'],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': 11,
+        'text-anchor': 'top',
+        'text-offset': [0, 0.95],
+        'text-max-width': 9,
+        // Optional: at 193 sites the beaches crowd together in Torbay and the
+        // Solent, and a dropped label is better than a collided one.
+        'text-optional': true,
+      },
+      paint: {
+        'text-color': palette.ink,
+        'text-halo-color': palette.paper,
+        'text-halo-width': 1.6,
+        'text-opacity': startVisible ? 1 : 0,
+        'text-opacity-transition': { duration: FADE_MS },
+      },
+    },
+    beforeId,
+  );
+
+  const controller = makeController(map, {
+    layerIds: [dotId, ringId, labelId], sourceId, startVisible, card, clearHover,
+    onShow: () => {
+      map.setPaintProperty(dotId, 'circle-opacity', 1);
+      map.setPaintProperty(dotId, 'circle-stroke-opacity', 0.95);
+      map.setPaintProperty(ringId, 'circle-stroke-opacity', 0.85);
+      map.setPaintProperty(labelId, 'text-opacity', 1);
+    },
+    onHide: () => {
+      map.setPaintProperty(dotId, 'circle-opacity', 0);
+      map.setPaintProperty(dotId, 'circle-stroke-opacity', 0);
+      map.setPaintProperty(ringId, 'circle-stroke-opacity', 0);
+      map.setPaintProperty(labelId, 'text-opacity', 0);
+    },
+  });
+
+  // Above the annual spill dots (56), below the generic point markers (60).
+  return { controller, queryLayers: [{ id: dotId, priority: 58 }], sourceId, bottomId: dotId };
 }
 
 // LIVE DISCHARGE STATUS (National Storm Overflow Hub). A two-state signal —

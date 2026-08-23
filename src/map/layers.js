@@ -84,6 +84,56 @@ const DSV = 'https://designatedsites.naturalengland.org.uk/SiteDetail.aspx?SiteC
 // Coastal erosion risk bands (NCERM recession-distance classes).
 const EROSION_LABEL = ['Negligible', 'Low', 'Moderate', 'High', 'Very high'];
 
+/*
+ * BATHING WATER card helpers.
+ *
+ * The classification series is stored as one character per year (see
+ * scripts/fetch-bathing-waters.mjs). Rendered in the card's monospace meta line
+ * it reads as a series rather than as prose, which is the honest shape for it:
+ * eleven annual judgements, some of them absent.
+ */
+const BW_TYPE = { coastal: 'Coastal', transitional: 'Estuary', river: 'River', lake: 'Lake' };
+const safeParse = (s) => { try { return JSON.parse(s) ?? []; } catch { return []; } };
+const BW_GLYPH = { E: 'E', G: 'G', S: 'S', P: 'P', U: '–', C: '×' };
+
+/** 'EEEGGUGG' + 2015 → '2015–25  E E E G G – G G'. Years before the site was
+ *  designated are trimmed rather than drawn as a gap, so a 2024 designation
+ *  reads '2024–25  P P' instead of nine placeholder dashes. */
+function bwSeries(hist, from) {
+  if (!hist) return null;
+  const first = [...hist].findIndex((ch) => ch !== '-');
+  if (first < 0) return null; // never classified — nothing to draw
+  const end = from + hist.length - 1;
+  const glyphs = [...hist.slice(first)].map((ch) => BW_GLYPH[ch] ?? '·').join(' ');
+  return `${from + first}–${String(end).slice(2)}  ${glyphs}`;
+}
+
+/**
+ * The overflow sentence — a PERMIT CONDITION, phrased as one.
+ *
+ * EA's Event Duration Monitoring return records which overflows are required to
+ * monitor because of a named bathing water. It does not record, and this card
+ * must not imply, that any of them reaches the beach. The empty case matters
+ * just as much: 55 of the 193 sites have no linked overflow, and that means no
+ * nearby overflow carries the requirement — not that nothing discharges there.
+ */
+function bwOverflows(raw, year) {
+  // MapLibre serialises feature properties across the worker boundary, and any
+  // value that is not a primitive arrives as a JSON STRING. The build writes
+  // `ovf` as an array of objects, so it has to be parsed back here — reading it
+  // as an array directly silently throws inside the hover handler and the card
+  // simply never appears.
+  const ovf = typeof raw === 'string' ? safeParse(raw) : Array.isArray(raw) ? raw : [];
+  const n = ovf.length;
+  if (!n) {
+    return 'No storm overflow near here carries a bathing-water monitoring requirement. That is not the same as nothing discharging nearby.';
+  }
+  const spills = ovf.reduce((t, o) => t + (o.s ?? 0), 0);
+  const hours = Math.round(ovf.reduce((t, o) => t + (o.h ?? 0), 0));
+  const head = `${n} storm overflow${n === 1 ? ' is' : 's are'} required to monitor because of this bathing water.`;
+  return `${head} Together they recorded ${plural(spills, 'spill')} over ${hours.toLocaleString('en-GB')} hours in ${year}.`;
+}
+
 // Format a hectare value tidily (no trailing ".0", thousands separators).
 const ha = (v) =>
   v == null || Number.isNaN(Number(v))
@@ -459,6 +509,86 @@ const allDataLayers = [
         ]
           .filter(Boolean)
           .join(' · ') || null,
+    }),
+  },
+  {
+    id: 'bathing',
+    label: 'Bathing waters',
+    description: 'EA designated sites — see About for coverage caveat',
+    group: 'At sea',
+    /*
+     * The 193 designated bathing waters between Land's End and Beachy Head, as
+     * markers. Built at build time by scripts/fetch-bathing-waters.mjs; default
+     * OFF, lazy-loaded like everything else in this group.
+     *
+     * POINTS, DELIBERATELY. EA publishes no usable boundary for a bathing water
+     * — the zone-of-influence URIs in its own API do not resolve, and the
+     * polygon set that does download carries EA's own instruction that it
+     * "should not be used for any definition of the bathing water area or
+     * extent". docs/bathing-water-investigation.md has the full account.
+     *
+     * DRAW ORDER. This sits directly beneath the live discharge layer and above
+     * the annual spill dots. Live discharge is an alert and must never be
+     * covered; the annual spill ramp is static context and can sit underneath.
+     */
+    kind: 'bathing',
+    data: `${base}data/bathing-waters.geojson`,
+    accentVar: 'bw-sufficient',
+    defaultVisible: false,
+    paint: {
+      colors: {
+        Excellent: palette['bw-excellent'],
+        Good: palette['bw-good'],
+        Sufficient: palette['bw-sufficient'],
+        Poor: palette['bw-poor'],
+        // Off the ramp: a site with no classification is drawn as an EMPTY
+        // marker, not as a fifth band below Poor.
+        none: palette['bw-unassessed'],
+      },
+    },
+    legend: [
+      { label: 'Excellent', colorVar: 'bw-excellent' },
+      { label: 'Good', colorVar: 'bw-good' },
+      { label: 'Sufficient', colorVar: 'bw-sufficient' },
+      { label: 'Poor', colorVar: 'bw-poor' },
+      { label: 'Not assessed — designated 2026, never classified', colorVar: 'bw-unassessed' },
+    ],
+    about: {
+      title: 'About bathing waters',
+      body: [
+        'THIS LAYER SHOWS WHERE BATHING IS DESIGNATED, NOT WATER QUALITY ALONG THIS COAST. The Environment Agency designates a bathing water where large numbers of people are expected to bathe, so these 193 sites gather on resort beaches and estuary shores and leave long stretches of coast unmarked. 180 km of open coast here is more than 5 km from any of them — the Lizard, Start Point to Hallsands, Chesil Beach, the Polperro cliffs. Estuaries and harbours are thinner still: only 35% of that shoreline is within 3 km of a site. A blank stretch means nobody is counted as bathing there, not that the water is clean.',
+        '"EXCELLENT" IS A FOUR-YEAR AGGREGATE, NOT A STATEMENT ABOUT TODAY. Each classification is calculated annually from the previous four bathing seasons, so the 2025 figures here are built from 2022–2025 samples. A site can be Excellent and still have bad days, and this layer does not carry the daily pollution risk forecast, which is a separate thing published only in the bathing season.',
+        'Of the 193 sites, 149 are Excellent, 30 Good, 2 Sufficient and 8 Poor. Four more were designated in 2026 and have never been classified: they are drawn as empty markers rather than given a colour, because "not assessed" is not a fifth quality band.',
+        'The series on each card runs 2015–2025 and stops there deliberately. EA also publishes 1988–2014 under the previous directive, whose values (Fail, Imperative, Guideline) come from a different instrument with a different pass mark — charting the two as one line would invent a trend. A dash marks a year EA did not assess the site; every site that existed in 2020 carries one, because there was no bathing season monitoring programme that year.',
+        'WHERE A CARD NAMES STORM OVERFLOWS, THAT IS A PERMIT CONDITION AND NOT A MEASURED EFFECT. EA’s Event Duration Monitoring return records which overflows are required to monitor because of a named bathing water: 138 of these 193 sites have at least one, 641 links in all. The other 55 have none, which means no overflow near them carries that requirement — not that nothing discharges nearby. Nothing in this data says an overflow’s discharge reaches a particular beach.',
+        'The marker is a SAMPLING POINT, not the beach. EA publishes no usable boundary for a bathing water, and notes that coastal sampling positions shift along a transect with the tide, so the dot is approximate. Environment Agency, Open Government Licence. Two independent EA services — the bathing water registry and the monitoring locations layer — are cross-checked on every build and agree on all 193 classifications.',
+      ],
+    },
+    card: (p) => ({
+      title: p.name,
+      subtitle: p.cls
+        ? `${p.cls} — EA classification for ${p.clsYear}, calculated from ${p.clsFrom}–${p.clsYear} samples`
+        : `Not assessed — designated ${p.desYr}, never classified`,
+      meta: [
+        [BW_TYPE[p.kind] || 'Bathing water', p.district, p.undertaker].filter(Boolean).join(' · '),
+        bwSeries(p.hist, p.histFrom) || 'No classification yet',
+      ].join('\n'),
+      note:
+        [
+          p.rain ? 'EA flags water quality here as affected by heavy rain.' : null,
+          (p.hist || '').includes('U') ? 'A dash is a year EA did not assess the site.' : null,
+          (p.hist || '').includes('C') ? 'A cross is a year it was closed.' : null,
+          // One corridor site (Lyme Regis Church Cliff Beach) carries a stray
+          // 2015 classification and then nothing until its 2024 designation.
+          // The gap is drawn rather than tidied away, and labelled for what it
+          // is: no published classification, cause unstated by EA.
+          (p.hist || '').replace(/^-+/, '').includes('-')
+            ? 'A dot is a year with no published classification.'
+            : null,
+          bwOverflows(p.ovf, p.ovfYear),
+        ]
+          .filter(Boolean)
+          .join(' '),
     }),
   },
   {
@@ -1275,7 +1405,7 @@ const allPanelGroups = [
   {
     label: 'At sea',
     layerIds: [
-      'marine', 'ncerm', 'wfd', 'licensing', 'fisheries', 'recreational',
+      'bathing', 'marine', 'ncerm', 'wfd', 'licensing', 'fisheries', 'recreational',
       'seabed', 'marine-species', 'wrecks', 'compound', 'shellfish', 'beachlitter',
     ],
     subgroups: [

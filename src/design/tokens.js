@@ -206,6 +206,44 @@ export const palette = {
   'rec-2': '#C583C4', // 1–5
   'rec-3': '#A44BA6', // 5–20
   'rec-4': '#6E1C74', // 20+ — the busy water
+  /*
+   * BATHING WATER CLASSIFICATION (EA, rBWD 2015 scheme) — a VIOLET ramp, light
+   * Excellent → deep Poor, plus a pale neutral for "not assessed".
+   *
+   * PROPOSED, FLAGGED FOR REVIEW — and this is the most crowded corner of the
+   * palette on this map, so the reasoning matters more than usual.
+   *
+   * The two layers these markers MUST survive alongside, because both will
+   * commonly be switched on with them, are the storm overflow spill dots
+   * (#E3D9D9 → #701F2E, ash-rose to wine) and the WFD water body fills
+   * (#3F8474 → #9A8468, sea-green to dun). Violet is clear of both: opposite the
+   * greens, and a different hue family from the reds.
+   *
+   * What violet is NOT clear of is two OFFSHORE washes — the fisheries indigo
+   * (#4557A0/#212C61) and the recreational magenta (#A44BA6/#6E1C74). No unused
+   * hue remains on this map, so rather than pretend otherwise the layer carries
+   * its identity in the MARKER STRUCTURE instead: every bathing water is drawn
+   * as a dark hairline ring around a thick cream halo around a coloured core.
+   * That silhouette belongs to no other layer, reads at any zoom, and survives
+   * any wash underneath it. Same reasoning as the protected wreck rings, where
+   * "the ring shape, not just the hue, is what marks them out".
+   *
+   * DIRECTION — light recedes, deep draws the eye, which is the grammar of the
+   * erosion, spill and compound ramps. It deliberately does NOT follow the WFD
+   * layer's grammar (hue drains as quality falls), because these two sit on the
+   * same water and must not read as one continuous scale. 149 of the 193 sites
+   * are Excellent; leaving that majority light keeps the 10 sites that are
+   * Sufficient or Poor findable, which is the only actionable thing here.
+   *
+   * NOT-ASSESSED IS NOT A FIFTH BAND. It is off the ramp entirely, so it reads
+   * as "no answer" rather than as a quality worse than Poor.
+   */
+  'bw-excellent': '#BFB3DC', // Excellent — light violet, recedes
+  'bw-good': '#9C86C4', // Good
+  'bw-sufficient': '#7355A6', // Sufficient
+  'bw-poor': '#432B6B', // Poor — deep violet, draws the eye
+  'bw-unassessed': '#DDD8CC', // not assessed — pale warm neutral, off the ramp entirely
+  'bw-ring': '#4A4536', // the shared dark hairline that makes the marker a bathing water
   'marine-species': '#B23A82', // legacy single-species tint (kept for the toggle accent)
   'marine-species-strong': '#7E2459',
   /*

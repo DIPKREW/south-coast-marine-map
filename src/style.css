@@ -1196,6 +1196,10 @@ body.is-ready .maplibregl-map {
 
 .info-card__meta {
   margin-top: 6px;
+  /* Cards may put a second data line here (e.g. the bathing water
+     classification series). No existing card string contains a newline, so this
+     changes nothing for the layers that were already here. */
+  white-space: pre-line;
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.01em;
