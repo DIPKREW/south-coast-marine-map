@@ -792,8 +792,8 @@ const allDataLayers = [
       title: 'About water body status',
       body: [
         'The Environment Agency divides the coast and its estuaries into water bodies and classifies each one under the Water Framework Directive. Colour here shows ECOLOGICAL status — a five-band judgement, High to Bad, built from biology (plankton, seaweeds, seabed life), supporting chemistry such as dissolved oxygen and nitrogen, and specific pollutants.',
-        'Of the 67 water bodies in the mapped area in the 2025 classification, 17 are Good, 49 Moderate and one Poor. None reach High.',
-        'CHEMICAL status is shown on the hover card but deliberately not mapped. Since 2019 it counts substances that exceed their limits right across England — mercury and certain flame retardants among them — so all 67 water bodies here fail it. That is a real result, but colouring by it would paint one flat wash and tell you nothing about the difference between one estuary and the next.',
+        'Of the 59 water bodies in the mapped area in the 2025 classification, 16 are Good, 42 Moderate and one Poor. None reach High.',
+        'CHEMICAL status is shown on the hover card but deliberately not mapped. Since 2019 it counts substances that exceed their limits right across England — mercury and certain flame retardants among them — so all 59 water bodies here fail it. That is a real result, but colouring by it would paint one flat wash and tell you nothing about the difference between one estuary and the next.',
       ],
     },
     card: (p) => ({
