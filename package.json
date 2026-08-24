@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "data": "npm run data:sssi && npm run data:hona && npm run data:centres && npm run data:dwt && npm run data:water && npm run data:water-named && npm run data:alc && npm run data:alc-post1988 && npm run data:crome && npm run data:species && npm run data:marine && npm run data:ncerm && npm run data:catchment && npm run data:storm-overflows && npm run data:wfd && npm run data:seabed && npm run data:marine-species && npm run data:recreational && npm run data:licensing && npm run data:bathing && npm run data:coastline",
+    "data": "npm run data:sssi && npm run data:hona && npm run data:centres && npm run data:dwt && npm run data:water && npm run data:water-named && npm run data:alc && npm run data:alc-post1988 && npm run data:crome && npm run data:species && npm run data:marine && npm run data:ncerm && npm run data:catchment && npm run data:storm-overflows && npm run data:wfd && npm run data:seabed && npm run data:marine-species && npm run data:recreational && npm run data:licensing && npm run data:bathing && npm run data:coastline && npm run data:pinnable",
     "data:sssi": "node scripts/fetch-sssi.mjs",
     "data:hona": "node scripts/build-hona.mjs",
     "data:dwt": "node scripts/fetch-dwt.mjs",
@@ -24,6 +24,7 @@
     "data:storm-overflows": "node scripts/fetch-storm-overflows.mjs",
     "data:bathing": "node scripts/fetch-bathing-waters.mjs",
     "data:coastline": "node scripts/fetch-coastline.mjs",
+    "data:pinnable": "node scripts/build-pinnable-area.mjs",
     "data:catchment": "node scripts/build-catchment-boundary.mjs",
     "data:wfd": "node scripts/fetch-wfd-coastal.mjs",
     "data:seabed": "node scripts/fetch-seabed.mjs",
@@ -41,6 +42,7 @@
     "pmtiles": "^4.4.1"
   },
   "devDependencies": {
+    "@turf/buffer": "^7.4.0",
     "mapshaper": "^0.7.33",
     "osmtogeojson": "^3.0.0-beta.5",
     "proj4": "^2.12.1",
