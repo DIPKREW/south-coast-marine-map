@@ -1216,6 +1216,19 @@ const allDataLayers = [
       breaks: REC_BREAKS,
       fillOpacity: 0.6,
       fillOpacityHover: 0.8,
+      /*
+       * One multiplier per band, applied to fillOpacity — see addDensityLayer.
+       * Reviewed and approved; colours and breaks are unchanged.
+       *
+       * The layer covered every sea cell at one opacity and read as blanket
+       * coverage rather than as a hotspot map. Fading the LOWEST band alone was
+       * tried first and does almost nothing: measured against the basemap, band
+       * 0 is the faintest thing on the map already (distance 14, against 23 for
+       * the paper/water step), while band 2 carries 36% of cells at distance 128.
+       * The blanket is the MIDDLE bands, so the fade is graduated across the
+       * bottom three and the busy two are left exactly as they were.
+       */
+      bandOpacity: [0.2, 0.38, 0.7, 1, 1],
     },
     // Coexistence with commercial fishing — see the note on that layer, which
     // does the work by switching to a hatch. This one sits underneath and shows
@@ -1230,6 +1243,7 @@ const allDataLayers = [
         'Where recreational boats were tracked, on the Marine Management Organisation\u2019s 2 km vessel density grid. Each square shows the average number of recreational vessel transits a week.',
         'THE DATA IS FROM 2015. AIS was sampled for the first seven days of each month through that year and the twelve sample weeks averaged. It is a decade old, it is the most recent MMO grid that is still actually downloadable, and boating patterns will have moved since \u2014 read it as where the pressure was, not where it is.',
         'It also only counts boats carrying AIS transponders, and most small recreational craft do not. Dinghies, kayaks, paddleboards, angling boats and a great many small motor and sailing boats are simply absent. That is not a footnote: on a coast like this one the untracked fleet is probably larger than the tracked one, so quiet water on this map can still be busy water, and the pattern is better read as a guide to where the larger, better-equipped boats concentrate.',
+        'THE FAINTEST WATER IS NOT EMPTY WATER. Every cell in this grid carries a real measured value — none is null, none is zero, and the 2 km grid runs continuously across this coast\u2019s sea with no gaps in it. The lowest figure anywhere in the corridor is 0.08 transits a week, which is about one a month rather than none. The palest shading is drawn close to the basemap so the busy water stands out, not because nothing was recorded there or because that water went unsurveyed. Hover any cell for its actual figure. Read alongside the point above about untracked craft: faint here means little TRACKED traffic, which is the weakest claim this data makes.',
       ],
     },
     card: (p) => {

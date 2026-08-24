@@ -1387,10 +1387,35 @@ function addDensityLayer(map, layer, beforeId, { card, clearHover }) {
   const breaks = layer.paint.breaks;
   const startVisible = layer.defaultVisible !== false;
   const pp = layer.pairedPaint;
-  const soloOpacity = hoverExpr(layer.paint.fillOpacityHover, layer.paint.fillOpacity);
+  /*
+   * PER-BAND OPACITY — opt-in, via `paint.bandOpacity`.
+   *
+   * A density wash covering every sea cell reads as blanket coverage rather than
+   * as a hotspot map. Where a layer sets `paint.bandOpacity` — one multiplier per
+   * band — each band is drawn at that share of the layer's normal fill opacity,
+   * so the sparse end recedes toward the basemap and the busy end holds. Hover
+   * still lifts the cell to full opacity, and the VALUE is untouched: the hover
+   * card reads the same number it always did, and nothing downstream changes.
+   *
+   * Absent from a layer's paint config this is a no-op and the expression is
+   * exactly what it was, which is what leaves commercial fishing untouched.
+   */
+  const bandOpacity = layer.paint.bandOpacity;
+  const fade = (base, hover) =>
+    !bandOpacity
+      ? hoverExpr(hover, base)
+      : [
+          'case',
+          ['boolean', ['feature-state', 'hover'], false], hover,
+          // Scale each band's share of the layer's normal fill opacity.
+          ['step', ['get', layer.field],
+            base * bandOpacity[0],
+            ...breaks.flatMap((b, i) => [b, base * bandOpacity[i + 1]])],
+        ];
+  const soloOpacity = fade(layer.paint.fillOpacity, layer.paint.fillOpacityHover);
   // Opacity used only while this layer's coexistence partner is also on. Absent
   // for every density layer with no partner, which behaves exactly as before.
-  const pairedOpacity = pp ? hoverExpr(pp.fillOpacityHover, pp.fillOpacity) : soloOpacity;
+  const pairedOpacity = pp ? fade(pp.fillOpacity, pp.fillOpacityHover) : soloOpacity;
 
   let paired = false;
   const fillOpacityExpr = () => (paired ? pairedOpacity : soloOpacity);
