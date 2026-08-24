@@ -18,6 +18,7 @@
  *   off  default-ON layers now OFF         off=water
  *   sp   marine species ticked             sp=greyseal,porpoise
  *   w    slider weights that are not 1     w=s:3,f:0
+ *   p    site briefing pin, "lat/lon/radiusKm" p=50.7233/-0.7889/3
  *
  * Keys are layer IDs, species keys and pressure keys — never display labels — so
  * renaming a layer in the panel cannot break links that are already out there.
@@ -68,7 +69,23 @@ export function readUrlState() {
     }
   }
 
-  return { view, on: list('l'), off: list('off'), species: list('sp'), weights };
+  /*
+   * The briefing pin. Same shape as `v` — slash-separated, four decimal places,
+   * ~11 m — so it reads the same way when pasted. The radius is carried even
+   * though stage one fixes it at 3 km, so a later change of radius cannot
+   * silently reinterpret links that are already out there.
+   */
+  let pin = null;
+  if (q.get('p')) {
+    const [lat, lon, r] = q.get('p').split('/').map(Number);
+    if ([lat, lon].every(Number.isFinite) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+      pin = { center: [lon, lat], radiusKm: Number.isFinite(r) && r > 0 ? r : null };
+    } else {
+      warn(`ignoring malformed pin "${q.get('p')}"`);
+    }
+  }
+
+  return { view, on: list('l'), off: list('off'), species: list('sp'), weights, pin };
 }
 
 /* --------------------------------------------------------------- restore --- */
@@ -78,7 +95,7 @@ export function readUrlState() {
  * stop the rest of the link from restoring, and must never leave the map half
  * built. Anything unrecognised is warned about and skipped.
  */
-export function applyUrlState(state, { map, layers, controllers }) {
+export function applyUrlState(state, { map, layers, controllers, briefing }) {
   if (!state) return;
 
   if (state.view) {
@@ -123,11 +140,22 @@ export function applyUrlState(state, { map, layers, controllers }) {
       if (Object.keys(next).length) c.setWeights(next);
     }
   }
+
+  /*
+   * The pin restores the whole mode: armed, positioned, briefing open. It is
+   * awaited nowhere — restore() loads the boundary itself and calls back when
+   * it lands, so a slow fetch cannot hold up the rest of the link.
+   */
+  if (state.pin && briefing) {
+    briefing.restore(state.pin.center).then((ok) => {
+      if (!ok) warn(`pin ${state.pin.center.join(',')} is outside the pinnable area, ignored`);
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ write --- */
 
-export function buildUrl({ map, layers, controllers, home }) {
+export function buildUrl({ map, layers, controllers, home, briefing }) {
   const q = new URLSearchParams();
 
   // Viewport only if it has actually moved off the opening frame.
@@ -167,6 +195,9 @@ export function buildUrl({ map, layers, controllers, home }) {
     if (skew.length) q.set('w', skew.join(','));
   }
 
+  const pin = briefing?.getPin?.();
+  if (pin) q.set('p', `${round(pin[1], LATLON_DP)}/${round(pin[0], LATLON_DP)}/${briefing.radiusKm}`);
+
   const qs = q.toString();
   // Decoded for readability — commas and slashes are legal in a query value and
   // percent-encoding them only makes the link uglier to paste around.
@@ -182,10 +213,10 @@ export function buildUrl({ map, layers, controllers, home }) {
  * debounced, so a continuous gesture produces one URL update when it settles
  * rather than one per frame.
  */
-export function wireUrlState({ map, layers, controllers, home, delay = 350 }) {
+export function wireUrlState({ map, layers, controllers, home, briefing, delay = 350 }) {
   let timer = null;
   const update = () => {
-    const url = buildUrl({ map, layers, controllers, home });
+    const url = buildUrl({ map, layers, controllers, home, briefing });
     if (url !== window.location.href) window.history.replaceState(null, '', url);
   };
   const schedule = () => {
@@ -194,5 +225,5 @@ export function wireUrlState({ map, layers, controllers, home, delay = 350 }) {
   };
   map.on('moveend', schedule);
   update();
-  return { schedule, update, current: () => buildUrl({ map, layers, controllers, home }) };
+  return { schedule, update, current: () => buildUrl({ map, layers, controllers, home, briefing }) };
 }

@@ -1365,3 +1365,97 @@ body.is-ready .maplibregl-map {
     animation: none !important;
   }
 }
+
+/* ---- Site briefing: the mode control in the main panel ---- */
+.briefing-slot { margin: 0 0 18px; }
+
+.briefing-mode__btn {
+  width: 100%;
+  padding: 9px 12px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.briefing-mode__btn:hover:not(:disabled) { border-color: var(--accent); }
+.briefing-mode__btn.is-active {
+  color: var(--surface);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.briefing-mode__btn:disabled { opacity: 0.5; cursor: default; }
+
+.briefing-mode__hint {
+  margin: 5px 2px 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink-muted);
+}
+
+/* ---- Site briefing: the readout shell in the second panel ---- */
+.detail__section--briefing .detail__section-title { color: var(--accent); }
+
+.briefing__where {
+  margin: 8px 0 0;
+  white-space: pre-line;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink);
+}
+.briefing__radius,
+.briefing__loadnote {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-muted);
+}
+
+.briefing__loadbtn {
+  margin-top: 7px;
+  padding: 5px 10px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.briefing__loadbtn:hover { border-color: var(--accent); color: var(--accent); }
+
+.briefing__list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--hairline);
+}
+.briefing__row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 5px 0;
+  font-size: 11.5px;
+  border-bottom: 1px solid var(--hairline);
+}
+.briefing__row-name { color: var(--ink); }
+.briefing__row.is-off .briefing__row-name { color: var(--ink-muted); }
+.briefing__row-state {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  color: var(--ink-muted);
+}
+.briefing__row.is-off .briefing__row-state::after {
+  content: ' · not loaded';
+  color: var(--ink-muted);
+  opacity: 0.75;
+}

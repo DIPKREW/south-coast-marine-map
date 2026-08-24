@@ -25,7 +25,7 @@
  */
 import { el } from './dom.js';
 
-export function buildDetailPanel({ layers, groups, controllers, onStateChange }) {
+export function buildDetailPanel({ layers, groups, controllers, onStateChange, briefing }) {
   const panel = el('aside', 'detail', { 'aria-label': 'Layer details', 'aria-live': 'polite' });
   const body = el('div', 'detail__body');
   panel.appendChild(body);
@@ -108,6 +108,23 @@ export function buildDetailPanel({ layers, groups, controllers, onStateChange })
     });
   }
 
+  /*
+   * THE SITE BRIEFING SECTION — a section that is not a layer.
+   *
+   * It is appended AFTER the loop above, so it lands last in the panel and the
+   * loop never has to know about it. It joins `sections` with its own `isOn`,
+   * which is all `sync` requires, so it opens the panel on its own the moment a
+   * pin is dropped. Its reset closure joins `resetters`, so Clear wipes it
+   * through the route every other piece of surviving state already uses.
+   */
+  let briefingApi = null;
+  if (briefing) {
+    briefingApi = buildBriefingSection({ layers, order, byId, controllers, briefing });
+    body.appendChild(briefingApi.el);
+    sections.push({ el: briefingApi.el, about: null, isOn: () => briefing.getPin() != null, wasOn: false });
+    resetters.push(() => briefingApi.clear());
+  }
+
   /**
    * Show the panel only when it has something to say AND the main panel is open.
    * `collapsed` is passed in rather than read, so there is one source of truth
@@ -146,7 +163,84 @@ export function buildDetailPanel({ layers, groups, controllers, onStateChange })
    */
   const reset = () => resetters.forEach((fn) => fn());
 
-  return { el: panel, sync, reset };
+  return { el: panel, sync, reset, updateBriefing: (info) => briefingApi?.update(info) };
+}
+
+/**
+ * STAGE ONE BRIEFING SHELL. The mechanism and the enumeration, not the content.
+ *
+ * What it proves: that the shell can enumerate EVERY layer in control-panel
+ * order — including the two inert placeholder toggles, beach litter and
+ * shellfish water quality, which have no data anywhere and will still need a
+ * line each saying so — and that it can tell which of them are currently
+ * loaded, because a briefing reads from loaded data.
+ */
+function buildBriefingSection({ layers, order, byId, controllers, briefing }) {
+  const root = el('section', 'detail__section detail__section--briefing', { 'data-briefing': 'true' });
+
+  const head = el('header', 'detail__section-head');
+  const swatch = el('span', 'detail__section-swatch', { 'aria-hidden': 'true' });
+  swatch.style.background = 'var(--accent)';
+  const title = el('h2', 'detail__section-title');
+  title.textContent = 'Site briefing';
+  head.append(swatch, title);
+  root.appendChild(head);
+
+  const where = el('p', 'briefing__where');
+  const radius = el('p', 'briefing__radius');
+  root.append(where, radius);
+
+  const loadNote = el('p', 'briefing__loadnote');
+  const loadBtn = el('button', 'briefing__loadbtn', { type: 'button' });
+  loadBtn.textContent = 'Load them';
+  /*
+   * Layers are NOT auto-loaded. Switching a dozen layers on behind someone's
+   * back would download several megabytes they did not ask for and change the
+   * map under them. The briefing says which are missing and offers the button.
+   */
+  loadBtn.addEventListener('click', () => {
+    for (const id of order) controllers.get(id)?.show?.();
+  });
+  root.append(loadNote, loadBtn);
+
+  const list = el('ul', 'briefing__list');
+  const rows = new Map();
+  for (const id of order) {
+    const layer = byId.get(id);
+    if (!layer) continue;
+    const li = el('li', 'briefing__row');
+    const name = el('span', 'briefing__row-name');
+    name.textContent = layer.detailLabel ?? layer.label;
+    const state = el('span', 'briefing__row-state');
+    state.textContent = 'pending';
+    li.append(name, state);
+    list.appendChild(li);
+    rows.set(id, { li, state });
+  }
+  root.appendChild(list);
+
+  const update = (info) => {
+    const pin = briefing.getPin();
+    if (!pin) return;
+    const [lon, lat] = pin;
+    const coords = `${lat.toFixed(4)}°N, ${Math.abs(lon).toFixed(4)}°${lon < 0 ? 'W' : 'E'}`;
+    // Coordinates lead. Any name is a SECOND line and is labelled for what it
+    // is — the nearest named feature, not a place name; see placeLookup.js.
+    where.textContent = info?.place ? `${coords}\n${info.place}` : coords;
+    radius.textContent = `Reporting on everything within ${briefing.radiusKm} km of this point.`;
+    const off = order.filter((id) => !controllers.get(id)?.isVisible?.());
+    for (const [id, r] of rows) {
+      const on = controllers.get(id)?.isVisible?.();
+      r.state.textContent = 'pending';
+      r.li.classList.toggle('is-off', !on);
+    }
+    loadNote.textContent = off.length
+      ? `${off.length} of ${rows.size} layers are not loaded. A briefing reads from loaded data, so those cannot be reported on yet.`
+      : 'Every layer is loaded.';
+    loadBtn.hidden = off.length === 0;
+  };
+
+  return { el: root, update, clear: () => { loadBtn.hidden = true; } };
 }
 
 /**

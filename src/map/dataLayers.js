@@ -24,7 +24,16 @@ const featureRef = (r) => (r.sourceLayer ? { source: r.source, sourceLayer: r.so
 // draw-order ANCHOR off it. See deferLayer.
 const ANCHOR_SOURCE = 'layer-anchor-source';
 
-export function applyDataLayers(map, layers) {
+/**
+ * @param {object} [opts]
+ * @param {() => boolean} [opts.isSuppressed]  while true, layer hover cards are
+ *   held off entirely. The site briefing's pin mode sets this: a card following
+ *   the cursor fights the pin both visually (it owns the cursor) and
+ *   functionally (a card sits under the pointer at the moment of the click).
+ *   Checked INSIDE the existing mousemove handler so suppression runs the same
+ *   teardown the handler already uses, rather than adding a second route out.
+ */
+export function applyDataLayers(map, layers, { isSuppressed } = {}) {
   const card = new InfoCard(map.getContainer());
   map.addSource(ANCHOR_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
@@ -82,7 +91,7 @@ export function applyDataLayers(map, layers) {
   }
 
   wirePairs(layers, controllers);
-  setupHover(map, card, registry, controllers, hover, clearHover);
+  setupHover(map, card, registry, controllers, hover, clearHover, isSuppressed);
   return controllers;
 }
 
@@ -2206,7 +2215,7 @@ function makeController(map, { layerIds, sourceId, startVisible, card, clearHove
 // visible layers — picking the highest hover priority (most specific), breaking
 // ties by draw order (topmost). So a thin river line wins over a broad wash even
 // though it's drawn beneath it, while markers still win over everything.
-function setupHover(map, card, registry, controllers, hover, clearHover) {
+function setupHover(map, card, registry, controllers, hover, clearHover, isSuppressed) {
   const accentFor = (layer) => palette[layer.accentVar] || palette.accent;
 
   const reset = () => {
@@ -2218,6 +2227,10 @@ function setupHover(map, card, registry, controllers, hover, clearHover) {
   };
 
   map.on('mousemove', (e) => {
+    // A mode that owns the pointer (the site briefing's pin) suppresses cards
+    // wholesale. reset() is the handler's own teardown, so nothing is left
+    // hovered or half-shown behind it.
+    if (isSuppressed?.()) return reset();
     const active = registry.filter((r) => controllers.get(r.layer.id).isVisible());
     if (!active.length) return reset();
 

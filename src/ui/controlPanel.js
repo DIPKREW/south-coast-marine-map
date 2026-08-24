@@ -119,6 +119,41 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
   const presetsSlot = el('div', 'presets-slot');
   body.appendChild(presetsSlot);
 
+  /*
+   * SITE BRIEFING — a MODE, not a layer, so it sits with the presets rather than
+   * in a layer group. Wired by main.js, which owns the map-side machinery.
+   *
+   * Naming note: this panel already has a `pinned` flag meaning "pin the panels
+   * open". Nothing here uses the word "pin" for the briefing marker, to keep the
+   * two apart.
+   */
+  const briefingSlot = el('div', 'briefing-slot');
+  body.appendChild(briefingSlot);
+  let briefingBtn = null;
+  let briefingHint = null;
+  const buildBriefing = (onToggle) => {
+    const root = el('div', 'briefing-mode');
+    briefingBtn = el('button', 'briefing-mode__btn', { type: 'button', 'aria-pressed': 'false' });
+    briefingBtn.textContent = 'Site briefing';
+    briefingBtn.setAttribute('title', 'Drop a pin to see what every layer says at one place');
+    briefingBtn.addEventListener('click', () => onToggle());
+    briefingHint = el('p', 'briefing-mode__hint');
+    briefingHint.textContent = 'Read every layer at one place';
+    root.append(briefingBtn, briefingHint);
+    briefingSlot.appendChild(root);
+  };
+  const setBriefingState = ({ armed, hasPin, available = true }) => {
+    if (!briefingBtn) return;
+    briefingBtn.classList.toggle('is-active', armed);
+    briefingBtn.setAttribute('aria-pressed', String(armed));
+    briefingBtn.disabled = !available;
+    briefingHint.textContent = !available
+      ? 'Unavailable — the pinnable area could not be loaded'
+      : armed
+        ? (hasPin ? 'Click again to move the pin' : 'Click the sea, or within 3 km of it')
+        : 'Read every layer at one place';
+  };
+
   // ---- Layer toggles, grouped ----
   const groupDefs = groups?.length ? groups : [{ label: 'Layers', layerIds: layers.map((l) => l.id) }];
 
@@ -251,7 +286,9 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
   };
 
   presetsSlot.appendChild(buildPresets(applyLayers, () => {
-    // The pin is panel state, so it is reset here rather than by the caller.
+    // The panel pin is panel state, so it is reset here rather than by the
+    // caller. The site briefing is NOT panel state — main.js owns it and
+    // disarms it from onClear, alongside the species ticks and slider weights.
     if (pinned) { pinned = false; applyPin(); }
     onClear?.();
   }));
@@ -259,6 +296,8 @@ export function buildControlPanel({ layers, groups, controllers, wordmark, tagli
   return {
     el: panel,
     applyLayers,
+    buildBriefing,
+    setBriefingState,
     collapse: () => setCollapsed(true),
     expand: () => setCollapsed(false),
     isCollapsed: () => collapsed,

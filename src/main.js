@@ -9,6 +9,8 @@ import { buildControlPanel } from './ui/controlPanel.js';
 import { buildDetailPanel } from './ui/detailPanel.js';
 import { readUrlState, applyUrlState, wireUrlState } from './ui/urlState.js';
 import { buildSearch } from './ui/search.js';
+import { createSiteBriefing } from './map/siteBriefing.js';
+import { createPlaceLookup } from './ui/placeLookup.js';
 
 // Palette → CSS custom properties, so CSS and the map style share one source.
 applyTokens();
@@ -19,7 +21,14 @@ const map = createMap(document.getElementById('map'));
 if (import.meta.env.DEV) window.__map = map;
 
 map.on('load', () => {
-  const controllers = applyDataLayers(map, dataLayers);
+  /*
+   * The briefing is created before the layers so its hover-suppression predicate
+   * can be handed to applyDataLayers. It holds no map objects until it is armed.
+   */
+  let briefing = null;
+  const controllers = applyDataLayers(map, dataLayers, {
+    isSuppressed: () => briefing?.isSuppressingHover() ?? false,
+  });
 
   /*
    * The opening frame, captured BEFORE any URL state is applied. It is the
@@ -34,7 +43,15 @@ map.on('load', () => {
    * ticks, each slider's starting value — so applying the URL first means the
    * controls come up already agreeing with the map, with nothing to re-sync.
    */
-  applyUrlState(readUrlState(), { map, layers: dataLayers, controllers });
+  const place = createPlaceLookup(import.meta.env.BASE_URL);
+  let syncBriefing = () => {};
+  briefing = createSiteBriefing({
+    map,
+    base: import.meta.env.BASE_URL,
+    onChange: () => syncBriefing(),
+  });
+
+  applyUrlState(readUrlState(), { map, layers: dataLayers, controllers, briefing });
 
   let url = null; // assigned once the map and panels exist
   const bumpUrl = () => url?.schedule();
@@ -42,6 +59,7 @@ map.on('load', () => {
   const detail = buildDetailPanel({
     layers: dataLayers, groups: panelGroups, controllers,
     onStateChange: bumpUrl,
+    briefing,
   });
 
   // Held in a variable rather than closed over directly: a layer whose data is
@@ -86,6 +104,9 @@ map.on('load', () => {
         Math.abs(c.lat - home.center[1]) > 1e-4 ||
         Math.abs(c.lng - home.center[0]) > 1e-4;
       if (away) map.flyTo({ center: home.center, zoom: home.zoom, speed: 1.4, essential: true });
+      // Clear disarms the mode and removes the pin, alongside the species ticks
+      // and slider weights that detail.reset() handles.
+      briefing.disarm();
       syncDetail();
       bumpUrl();
     },
@@ -103,6 +124,24 @@ map.on('load', () => {
   });
   panelHandle = panel;
 
+  // ---- Site briefing: the panel control, and the sync that keeps both panels
+  // and the URL in step with the map-side mode.
+  panel.buildBriefing(() => briefing.toggle());
+  syncBriefing = () => {
+    const pin = briefing.getPin();
+    panel.setBriefingState({ armed: briefing.isArmed(), hasPin: pin != null, available: briefing.isAvailable() });
+    if (pin) {
+      // Name from the LOCAL index — no network. Absent if nothing is near
+      // enough to be honest about, in which case the panel shows coordinates
+      // alone rather than inventing a name.
+      place.nearest(pin).then((name) => detail.updateBriefing({ place: name }));
+      detail.updateBriefing({});
+    }
+    syncDetail();
+    bumpUrl();
+  };
+  syncBriefing();
+
   // The detail panel is mounted BEFORE the control panel so it stacks beneath
   // it: while hidden it sits tucked behind the main panel, and slides out to the
   // right from there.
@@ -112,9 +151,12 @@ map.on('load', () => {
   syncDetail();
 
   // Keep the address bar in step from here on: debounced, replaceState only.
-  url = wireUrlState({ map, layers: dataLayers, controllers, home });
+  url = wireUrlState({ map, layers: dataLayers, controllers, home, briefing });
 
-  wireAutoCollapse(map, panel);
+  // Auto-collapse is skipped while the briefing is armed: every pin click is a
+  // map click, and collapsing the main panel hides the second panel the briefing
+  // lives in. Every other mode keeps the existing behaviour.
+  wireAutoCollapse(map, panel, () => briefing.isArmed());
 
   // Reveal the map once the first frame is painted — a calm fade-in.
   map.once('idle', () => document.body.classList.add('is-ready'));
@@ -147,11 +189,16 @@ map.on('error', (e) => {
  * rather than by detaching the listeners: unpinning then needs no re-wiring, and
  * the chevron keeps working while pinned because it never went through here.
  */
-function wireAutoCollapse(map, panel) {
+function wireAutoCollapse(map, panel, isModeArmed) {
   const container = map.getContainer();
 
   const autoCollapse = (event) => {
     if (panel.isPinned()) return;
+    // A mode that uses map clicks as its own input keeps the panel open: the
+    // site briefing's readout lives in the second panel, which is hidden while
+    // the main panel is collapsed, so collapsing on the pin click would hide
+    // the very thing the click just produced.
+    if (isModeArmed?.()) return;
     if (panel.isCollapsed()) return;
     // The attribution control is map furniture, not the map itself.
     if (event.target instanceof Element && event.target.closest('.maplibregl-ctrl-attrib')) return;
