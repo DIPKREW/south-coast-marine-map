@@ -750,14 +750,34 @@ const allDataLayers = [
     about: {
       title: 'About coastal erosion risk',
       body: [
-        "The Environment Agency's mapping of how vulnerable each stretch of Dorset's coast is to erosion — fitting for a coastline, like the Jurassic Coast, shaped by constant change.",
-        'Shown for the "no future intervention" scenario — how far the shore could recede by 2055 if defences were not maintained — so it reads as inherent vulnerability, not a forecast of what will happen.',
+        'THIS IS A PROJECTION UNDER ONE NAMED SCENARIO, NOT A PREDICTION. The distance on each frontage is how far the Environment Agency projects the shoreline could recede by 2055 IF COASTAL DEFENCES WERE NOT MAINTAINED — the "no future intervention" scenario, with the UKCP18 higher central climate allowance. It is not a forecast of what will happen, not a date by which anything will happen, and not the future position of the coast. It reads as inherent vulnerability: how exposed a stretch would be with the defences taken out of the picture.',
+        'IT DESCRIBES MANAGED SHORELINE FRONTAGES, NOT EVERY STRETCH OF COAST. NCERM divides the coast into "frontages" — lengths with consistent cliff and defence characteristics — inside Shoreline Management Plan areas. Where no frontage is drawn there is nothing in this dataset to draw, which is not the same as a coast that will not erode. The shapes are erosion risk ZONES reaching inland from the shore, not lines along it.',
+        'Between Land’s End and Beachy Head this comes to 2,978 frontages across six Shoreline Management Plan areas. Projected recession runs to a median of 10 m and a maximum of 388 m: 163 negligible, 1,406 low, 873 moderate, 362 high and 174 very high.',
+        'Each card names the DEFENCE TYPE that NCERM records for that frontage. For 1,279 of the 2,978 — 43% — that field is empty, and the card says so rather than calling the frontage undefended. Those are different claims: an empty field means nobody recorded a defence type, not that there is nothing there. Where the recorded type is "Natural", that does mean a frontage with no built defence.',
+        'Environment Agency, National Coastal Erosion Risk Mapping (NCERM) National 2024 — revised November 2024, published January 2025, updated annually. Open Government Licence v3.0.',
       ],
     },
+    /*
+     * The card leads with the risk band, not the Shoreline Management Plan name.
+     * `smp_name` is the name of the SMP AREA, shared by hundreds of frontages —
+     * "Durlston Head to Rame Head" covers 944 of them — so it is regional
+     * context, not a place-name for this particular frontage. Titling the card
+     * with it would give Poole and Plymouth the same heading.
+     */
     card: (p) => ({
       title: `${EROSION_LABEL[p.risk] ?? 'Unknown'} erosion risk`,
-      subtitle: 'Projected shoreline recession by 2055',
-      meta: p.dist != null ? `≈ ${p.dist} m, no future intervention` : null,
+      subtitle:
+        p.dist > 0
+          ? `Projected recession ≈ ${p.dist} m by 2055`
+          : 'No recession projected by 2055',
+      meta: ['No future intervention scenario', p.smp ? `SMP area: ${p.smp}` : null]
+        .filter(Boolean)
+        .join('\n'),
+      // An empty def_type is a GAP, not a finding. Never render it as
+      // "undefended" — 43% of frontages have nothing in the field.
+      note: p.def
+        ? `Defence type: ${p.def}.`
+        : 'Defence type is not recorded for this frontage — a gap in the data, not a statement that it is undefended.',
     }),
   },
   {
