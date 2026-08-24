@@ -45,6 +45,7 @@
     "@turf/buffer": "^7.4.0",
     "mapshaper": "^0.7.33",
     "osmtogeojson": "^3.0.0-beta.5",
+    "playwright": "^1.62.1",
     "proj4": "^2.12.1",
     "vite": "^5.4.10"
   }
