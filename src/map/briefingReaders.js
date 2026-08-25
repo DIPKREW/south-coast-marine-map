@@ -106,13 +106,37 @@ const reports = (summary, items = [], extra = {}) => ({ status: 'reports', summa
 const nothingHere = (summary) => ({ status: 'nothing-here', summary, items: [] });
 const notCovered = (summary) => ({ status: 'not-covered', summary, items: [] });
 
-const n = (v) => Number(v ?? 0).toLocaleString('en-GB');
-const plural = (c, word) => `${n(c)} ${word}${c === 1 ? '' : 's'}`;
-/** Under 100 m from a polygon edge, a decimal reads as false precision and
- *  "0.0 km away" reads as a contradiction of "does not contain this point". */
-const away = (d) => (d < 0.1 ? 'just outside' : `${d.toFixed(1)} km away`);
+/* Small lookup tables, kept in step with their layer definitions in layers.js.
+   Duplicated rather than imported: layers.js pulls in the whole MapLibre paint
+   stack, and a reader needs three labels, not a style. */
+const LIVE_LABEL = { 1: 'discharging now', 0: 'not currently discharging', '-1': 'monitor offline, no signal' };
+const EROSION = ['Negligible', 'Low', 'Moderate', 'High', 'Very high'];
+const CP_PRESSURES = [
+  ['s', 'Storm overflow'], ['w', 'Water body status'], ['r', 'Recreational'],
+  ['f', 'Fishing'], ['d', 'Dredging'],
+];
 
-/* ---- the four readers ----------------------------------------------------- */
+/** `ovf` is an array in the committed file, but MapLibre serialises non-scalar
+ *  properties across the worker boundary, so it can arrive as a JSON string.
+ *  This reader loads the file directly and gets the array — the string case is
+ *  handled anyway, because the bug it causes is silent. */
+function safeCount(raw) {
+  if (Array.isArray(raw)) return raw.length;
+  if (typeof raw === 'string') { try { const v = JSON.parse(raw); return Array.isArray(v) ? v.length : 0; } catch { return 0; } }
+  return 0;
+}
+
+const n = (v) => Number(v ?? 0).toLocaleString('en-GB');
+/** `many` is given explicitly where adding an "s" would not work — "water
+ *  bodys" is the sort of thing that makes a reader distrust the figures. */
+const plural = (c, word, many) => `${n(c)} ${c === 1 ? word : many ?? `${word}s`}`;
+/** "0.0 km away" reads as a contradiction of "does not contain this point", so
+ *  anything under a kilometre is given in metres instead. This matters most for
+ *  water body status, where a shoreline pin is routinely 40–90 m outside the
+ *  polygon it is plainly standing in. */
+const away = (d) => (d < 1 ? `${Math.max(10, Math.round(d * 1000 / 10) * 10)} m away` : `${d.toFixed(1)} km away`);
+
+/* ---- the readers ----------------------------------------------------------- */
 
 /**
  * STORM OVERFLOWS — points. Count and list within the radius.
@@ -315,9 +339,171 @@ const water = {
   },
 };
 
+
+/**
+ * BATHING WATERS — points. Designated sites within the radius.
+ *
+ * NEVER "not covered". This is a designation register for the whole corridor,
+ * like the marine designations: 191 of the 193 sites fall inside the pinnable
+ * area and the two that do not are inland river sites on the Hampshire Avon.
+ * So "no designated bathing water within 3 km" is a real finding anywhere a pin
+ * can be dropped — and an important one, since 180 km of open coast here is
+ * more than 5 km from any site.
+ *
+ * The permit condition is stated WITHOUT the spill totals. The card carries
+ * them; here, next to a distance and a classification, "together they recorded
+ * 43 spills" would read as a quantity delivered to that beach. Nothing in this
+ * data says an overflow's discharge reaches a particular bathing water.
+ */
+const bathing = {
+  id: 'bathing',
+  label: 'Bathing waters',
+  async read(pin, { base }) {
+    const fc = await loadJson(`${base}data/bathing-waters.geojson`);
+    const near = fc.features
+      .map((f) => ({ p: f.properties, d: distKm(f.geometry.coordinates, pin) }))
+      .filter((o) => o.d <= RADIUS_KM)
+      .sort((a, b) => a.d - b.d);
+
+    if (!near.length) {
+      let nearest = Infinity;
+      for (const f of fc.features) nearest = Math.min(nearest, distKm(f.geometry.coordinates, pin));
+      return nothingHere(
+        Number.isFinite(nearest)
+          ? `none within ${RADIUS_KM} km — the nearest is ${nearest.toFixed(1)} km away`
+          : `none within ${RADIUS_KM} km`,
+      );
+    }
+    return reports(
+      `${plural(near.length, 'designated site')} within ${RADIUS_KM} km`,
+      near.slice(0, 3).map((o) => {
+        const cls = o.p.cls
+          ? `${o.p.cls} (EA classification for ${o.p.clsYear}, from ${o.p.clsFrom}–${o.p.clsYear} samples)`
+          : `not assessed (designated ${o.p.desYr}, never classified)`;
+        const ovf = safeCount(o.p.ovf);
+        const permit = ovf
+          ? `${plural(ovf, 'overflow')} required to monitor because of this site`
+          : 'no overflow carries a monitoring requirement for this site';
+        return `${away(o.d)}: ${o.p.name} — ${cls} · ${permit}`;
+      }),
+      {
+        more: Math.max(0, near.length - 3),
+        caveat: 'A classification aggregates four bathing seasons and says nothing about today; a named overflow is a permit condition, not a measured effect.',
+      },
+    );
+  },
+};
+
+/**
+ * RECREATIONAL PRESSURE — a grid, like commercial fishing.
+ *
+ * EVERY CELL CARRIES A REAL VALUE. None is null, none is zero, and the lowest
+ * anywhere in the corridor is 0.08 transits a week — verified against the
+ * committed file, 10,380 of 10,380. So the absence of a cell is the only
+ * silence this layer has, and the faintest shading is a measurement rather than
+ * an empty square. That matters more since the graduated opacity went in: pale
+ * is a design choice about legibility, not a report of nothing.
+ */
+const recreational = {
+  id: 'recreational',
+  label: 'Recreational pressure',
+  async read(pin, { base }) {
+    const fc = await loadJson(`${base}data/recreational-pressure.geojson`);
+    let cell = null;
+    let nearest = Infinity;
+    for (const f of fc.features) {
+      if (containsPoint(f.geometry, pin)) { cell = f.properties; break; }
+      nearest = Math.min(nearest, distanceToGeometry(f.geometry, pin));
+    }
+    if (!cell) {
+      return notCovered(
+        Number.isFinite(nearest) && nearest < 50
+          ? `no grid cell here — the nearest surveyed cell is ${nearest.toFixed(1)} km away`
+          : 'no grid cell here',
+      );
+    }
+    const pct = cell.all > 0 ? (cell.rec / cell.all) * 100 : null;
+    // Rounding 0.4% to "0%" would say none, which is the one thing this layer
+    // never says.
+    const share = pct == null ? null : pct < 1 ? 'under 1%' : `${Math.round(pct)}%`;
+    return reports(
+      `${cell.rec} recreational transit${cell.rec === 1 ? '' : 's'} a week in this 2 km cell, average week of 2015`,
+      [
+        share != null ? `${share} of all tracked vessel traffic in this cell` : null,
+        'Every cell in this grid carries a measured value — none is zero, and the lowest anywhere here is 0.08 a week.',
+      ].filter(Boolean),
+      {
+        caveat: 'AIS misses dinghies, kayaks, paddleboards and most small craft, and on this coast the untracked fleet is probably larger than the tracked one.',
+      },
+    );
+  },
+};
+
+/**
+ * COMPOUND PRESSURE — a grid, computed at runtime from the sliders.
+ *
+ * THE WEIGHTS ARE PART OF THE FIGURE. The composite is a weighted mean of
+ * whichever of the five pressures a cell has, and the weights are the user's,
+ * so a score quoted without them cannot be reproduced or checked. The briefing
+ * states them on their own line, every time, and says plainly when they are all
+ * equal — because equal is the absence of a recommendation rather than one.
+ *
+ * The breakdown is carried for the same reason it is on the card: anyone should
+ * be able to see which pressure is driving a score. A pressure a cell has no
+ * data for reads "not assessed" and is excluded from the mean rather than
+ * counted as zero — 92% of cells are unassessed for water body status and 18%
+ * for fishing.
+ */
+const compound = {
+  id: 'compound',
+  label: 'Compound pressure',
+  async read(pin, { base, controllers }) {
+    const fc = await loadJson(`${base}data/compound-pressure.geojson`);
+    let cell = null;
+    let nearest = Infinity;
+    for (const f of fc.features) {
+      if (containsPoint(f.geometry, pin)) { cell = f.properties; break; }
+      nearest = Math.min(nearest, distanceToGeometry(f.geometry, pin));
+    }
+    if (!cell) {
+      return notCovered(
+        Number.isFinite(nearest) && nearest < 50
+          ? `no grid cell here — the nearest cell is ${nearest.toFixed(1)} km away`
+          : 'no grid cell here',
+      );
+    }
+    const w = controllers?.get('compound')?.getWeights?.() ?? { s: 1, w: 1, r: 1, f: 1, d: 1 };
+    let num = 0, den = 0;
+    const parts = [];
+    for (const [k, label] of CP_PRESSURES) {
+      const v = cell[k];
+      if (v == null) { parts.push(`${label} not assessed`); continue; }
+      num += w[k] * v; den += w[k];
+      parts.push(`${label} ${Number(v).toFixed(2)}`);
+    }
+    const score = den > 0 ? num / den : 0;
+    const equal = CP_PRESSURES.every(([k]) => w[k] === w.s);
+    const weights = equal
+      ? `Weighting in force: all five equal at ${Number(w.s).toFixed(1)} — equal is the absence of a recommendation, not one.`
+      : `Weighting in force: ${CP_PRESSURES.map(([k, l]) => `${l} ×${Number(w[k]).toFixed(1)}`).join(' · ')}`;
+    return reports(
+      `${score.toFixed(2)} of 1 in this 2 km cell, under the weighting on screen now`,
+      [parts.join(' · '), weights],
+      {
+        caveat: 'A Compound Pressure Indicator, not a cumulative effects assessment: it shows where separately-monitored pressures are simultaneously high, and establishes nothing about ecological harm.',
+      },
+    );
+  },
+};
+
 /** Readers by layer id. A layer with no reader stays `pending`. */
 export const READERS = Object.fromEntries(
-  [stormOverflows, marine, fisheries, water].map((r) => [r.id, r]),
+  [
+    // Stage two-A — one of each geometry type, establishing the pattern.
+    stormOverflows, marine, fisheries, water,
+    // Stage two-B batch one — the registers and grids.
+    bathing, recreational, compound,
+  ].map((r) => [r.id, r]),
 );
 
 /** Layers that are inert placeholders with no data anywhere in the corridor.

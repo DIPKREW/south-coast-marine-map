@@ -325,7 +325,7 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
       else {
         result = { status: 'reading', summary: 'reading…', items: [] };
         pending.push(
-          READERS[id].read(pin, { base }).then(
+          READERS[id].read(pin, { base, controllers }).then(
             (out) => { if (mine === token) { results.set(id, out); render(id, out); } },
             (err) => {
               const out = { status: 'unavailable', summary: `could not be read (${err.message})`, items: [] };
