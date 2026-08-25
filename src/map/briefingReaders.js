@@ -109,6 +109,29 @@ const notCovered = (summary) => ({ status: 'not-covered', summary, items: [] });
 /* Small lookup tables, kept in step with their layer definitions in layers.js.
    Duplicated rather than imported: layers.js pulls in the whole MapLibre paint
    stack, and a reader needs three labels, not a style. */
+const SEABED_LABEL = {
+  rock: 'Rock & reef', coarse: 'Coarse sediment', mixed: 'Mixed sediment',
+  sand: 'Sand', mud: 'Mud', biogenic: 'Biogenic reef', intertidal: 'Intertidal',
+  sediment: 'Sediment', unknown: 'Unclassified',
+};
+
+/** The 18 marine species, as [file key, common name]. Kept in step with
+ *  MARINE_SPECIES in layers.js — same reason the other tables are duplicated. */
+const MARINE_SPECIES_KEYS = [
+  ['greyseal', 'Grey seal'], ['harbourseal', 'Harbour seal'],
+  ['commondolphin', 'Common dolphin'], ['bottlenose', 'Bottlenose dolphin'],
+  ['porpoise', 'Harbour porpoise'], ['minkewhale', 'Minke whale'],
+  ['baskingshark', 'Basking shark'], ['tope', 'Tope'],
+  ['thornbackray', 'Thornback ray'], ['undulateray', 'Undulate ray'],
+  ['bluefin', 'Atlantic bluefin tuna'], ['seahorse', 'Spiny seahorse'],
+  ['shortseahorse', 'Short-snouted seahorse'], ['cuttlefish', 'Common cuttlefish'],
+  ['curledoctopus', 'Curled octopus'], ['commonoctopus', 'Common octopus'],
+  ['europeansquid', 'European squid'], ['veinedsquid', 'Veined squid'],
+];
+
+const MARINE_SPECIES_CAVEAT =
+  'Records cluster where people go, and most are resolved only to a 10 km square — a dot marks an area someone reported from, not an animal\'s position.';
+
 const LIVE_LABEL = { 1: 'discharging now', 0: 'not currently discharging', '-1': 'monitor offline, no signal' };
 const EROSION = ['Negligible', 'Low', 'Moderate', 'High', 'Very high'];
 const CP_PRESSURES = [
@@ -886,6 +909,138 @@ const compound = {
   },
 };
 
+
+/**
+ * SEABED HABITATS — polygons. The class beneath the pin.
+ *
+ * NEVER "nothing here". UKSeaMap is a continuous predictive surface, so the
+ * absence of a polygon is always the absence of MODELLING, never the absence of
+ * seabed. Every silence is "not covered".
+ *
+ * THE INTERTIDAL IS DETECTABLE, and it is worth detecting. UKSeaMap stops at
+ * the low-water mark, leaving an unmapped strip hugging the shore: measured
+ * against the committed file, a pin 10 m from the coast at Southsea has no
+ * polygon and the nearest is 280 m away; at Porthcurno, 100 m from the coast,
+ * the nearest is 250 m. Cover starts by about 500 m. So a pin within 500 m of
+ * the coastline with no polygon is in that strip and the line says which limit
+ * it has hit, rather than leaving the reader to guess.
+ *
+ * ON STUDLAND, where the layer's own About text is the better guide. The
+ * seagrass there is missing NOT because the bay is unmapped — a polygon covers
+ * it and calls it EUNIS A5.23, infralittoral fine sand — but because a
+ * broad-scale model cannot resolve a feature that small. The intertidal
+ * exclusion is real and is reported here; it is not the Studland explanation.
+ */
+const seabed = {
+  id: 'seabed',
+  label: 'Seabed habitats',
+  async read(pin, { base }) {
+    const fc = await loadJson(`${base}data/seabed.geojson`);
+    let hit = null;
+    let nearest = Infinity;
+    for (const f of fc.features) {
+      if (containsPoint(f.geometry, pin)) { hit = f.properties; break; }
+      nearest = Math.min(nearest, distanceToGeometry(f.geometry, pin));
+    }
+    if (!hit) {
+      const { side, km } = await sideOfCoast(pin, base);
+      if (km <= 0.5) {
+        return notCovered('not covered here — UKSeaMap stops at the low-water mark and does not map the intertidal');
+      }
+      if (side === 'land') {
+        return notCovered(`not covered here — this layer maps the sea floor and this point is ${km.toFixed(1)} km inland`);
+      }
+      return notCovered(
+        Number.isFinite(nearest)
+          ? `not modelled here — the nearest mapped seabed is ${nearest.toFixed(1)} km away`
+          : 'not modelled here',
+      );
+    }
+    return reports(
+      SEABED_LABEL[hit.grp] ?? 'Seabed habitat',
+      [
+        [hit.code ? `EUNIS ${hit.code}` : null, hit.name].filter(Boolean).join(' — '),
+        hit.zone,
+      ].filter(Boolean),
+      {
+        // Stated on the line, not only in the notes: a substrate named with
+        // this much confidence invites being read as survey.
+        note: 'Predictive model (JNCC UKSeaMap), not survey.',
+        caveat: 'Modelled from bathymetry, substrate, light and wave and tidal energy — the source draws no distinction between modelled and surveyed ground, because all of it is modelled.',
+      },
+    );
+  },
+};
+
+/**
+ * MARINE SPECIES — points, 18 species, each its own file.
+ *
+ * THE LEAST TRUSTWORTHY SILENCE ON THE MAP, and the reader's main job is to
+ * stop it reading as absence. Records cluster where people go — ferry routes,
+ * dive sites, the headlands watchers stand on — so no records within 3 km means
+ * nobody reported, and the line says exactly that rather than leaving it to the
+ * notes.
+ *
+ * ALL EIGHTEEN, ALWAYS, whatever the checklist shows. Two reasons. A briefing
+ * filtered by an incidental UI state cannot be reproduced from the link it
+ * carries; and the checklist starts with everything unticked, so a
+ * checklist-filtered briefing would report nothing at all by default — the
+ * worst possible default for the one layer whose silence is least meaningful.
+ *
+ * Reading all eighteen while the map draws three would otherwise look like a
+ * bug, so the line says how many the checklist is showing whenever the two
+ * differ. All eighteen files together are 268 KB, so this costs little.
+ */
+const marineSpecies = {
+  id: 'marine-species',
+  label: 'Marine species',
+  async read(pin, { base, controllers }) {
+    const found = [];
+    await Promise.all(MARINE_SPECIES_KEYS.map(async ([key, common]) => {
+      const fc = await loadJson(`${base}data/marine-species/${key}.geojson`);
+      let squares = 0;
+      let records = 0;
+      for (const f of fc.features) {
+        if (distKm(f.geometry.coordinates, pin) <= RADIUS_KM) {
+          squares++;
+          records += f.properties.n ?? 0;
+        }
+      }
+      if (squares) found.push({ common, squares, records });
+    }));
+    found.sort((a, b) => b.records - a.records);
+
+    const ticked = controllers?.get('marine-species')?.checkedKeys?.().length ?? 0;
+    const showing = ticked === MARINE_SPECIES_KEYS.length
+      ? null
+      : `Reporting all ${MARINE_SPECIES_KEYS.length} species; the checklist on the map is showing ${ticked === 0 ? 'none' : n(ticked)}.`;
+
+    if (!found.length) {
+      const { side, km } = await sideOfCoast(pin, base);
+      if (side === 'land' && km > 0.5) {
+        return notCovered(`not covered here — these are marine species records and this point is ${km.toFixed(1)} km inland`);
+      }
+      return {
+        status: 'nothing-here',
+        summary: `no records within ${RADIUS_KM} km from any of the ${MARINE_SPECIES_KEYS.length} species — which means nobody reported here, not that nothing is there`,
+        items: [],
+        note: showing,
+        caveat: MARINE_SPECIES_CAVEAT,
+      };
+    }
+    return reports(
+      `${n(found.length)} of ${MARINE_SPECIES_KEYS.length} species recorded within ${RADIUS_KM} km`,
+      found.slice(0, 3).map((s) =>
+        `${s.common} — ${plural(s.records, 'record')} across ${plural(s.squares, 'grid square')}`),
+      {
+        more: Math.max(0, found.length - 3),
+        note: showing,
+        caveat: MARINE_SPECIES_CAVEAT,
+      },
+    );
+  },
+};
+
 /** Readers by layer id. A layer with no reader stays `pending`. */
 export const READERS = Object.fromEntries(
   [
@@ -893,6 +1048,8 @@ export const READERS = Object.fromEntries(
     stormOverflows, marine, fisheries, water,
     // Stage two-B batch one — the eight tractable layers.
     bathing, wfd, stormLive, ncerm, licensing, wrecks, recreational, compound,
+    // Stage two-B batch two — completing the readout.
+    seabed, marineSpecies,
   ].map((r) => [r.id, r]),
 );
 
