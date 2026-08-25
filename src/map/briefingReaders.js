@@ -1082,7 +1082,10 @@ const seaFlood = {
   members: FLOOD_MEMBERS.map((m) => m.id),
   async read(pin, { base, controllers }) {
     const state = await Promise.all(FLOOD_MEMBERS.map(async (m) => {
-      if (!controllers?.get(m.id)?.isVisible?.()) return { ...m, loaded: false };
+      // isLoaded, not isVisible: the four extents can be loaded for a briefing
+      // without being drawn, and this reader's whole job is to say which of them
+      // it could actually consult.
+      if (!controllers?.get(m.id)?.isLoaded?.()) return { ...m, loaded: false };
       const fc = await loadJson(`${base}data/${m.id.replace('sea-flood-', 'sea-flood-')}.geojson`);
       return { ...m, loaded: true, inside: fc.features.some((f) => containsPoint(f.geometry, pin)) };
     }));
