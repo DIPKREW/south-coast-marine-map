@@ -232,6 +232,9 @@ function deferLayer(map, layer, beforeId, ctx, add) {
   // Slider weights chosen before the layer built. Same buffering rationale.
   const pendingWeights = Object.fromEntries((layer.pressures ?? []).map((p) => [p.key, 1]));
 
+  // Whatever `prepare` returned, kept for readers that have no file to go to.
+  let prepared = null;
+
   const build = async () => {
     if (real || failed || building) return;
     building = true;
@@ -239,6 +242,7 @@ function deferLayer(map, layer, beforeId, ctx, add) {
       // `prepare` lets a layer assemble its data at runtime (the live storm
       // overflow feed queries several APIs) before anything is added to the map.
       const extra = layer.prepare ? await layer.prepare() : null;
+      prepared = extra;
       // defaultVisible true: we are building precisely because it was asked for.
       real = add(map, { ...layer, ...extra, defaultVisible: true, defaultSpecies: species }, anchorId, ctx);
       resolveQuery(real.queryLayers ?? []);
@@ -299,6 +303,15 @@ function deferLayer(map, layer, beforeId, ctx, add) {
       real?.controller.setWeights(next);
     };
   }
+
+  /*
+   * The live storm overflow feed has no committed file behind it: `prepare`
+   * fetches it once and the result lives only here. The site briefing needs
+   * both the features and the fetch time — a briefing that re-queried the feed
+   * would quote a snapshot the map is not showing — so what prepare produced is
+   * handed back rather than being reachable only through the map source.
+   */
+  if (layer.prepare) controller.getPrepared = () => prepared;
 
   if (layer.species) {
     controller.getSpecies = () => species;

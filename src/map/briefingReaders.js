@@ -511,6 +511,97 @@ const wfd = {
 };
 
 /**
+ * LIVE DISCHARGE STATUS — points, fetched on toggle.
+ *
+ * The only reader with no committed file behind it. The feed is queried once
+ * when the layer is switched on and never refreshed, so the reader takes the
+ * prepared data and its fetch time from the controller rather than re-fetching
+ * — a second query would produce a briefing that disagrees with the map.
+ *
+ * If the layer is off there is no snapshot, and the framework's "not loaded"
+ * line stands. That is the correct answer and not a limitation: reporting a
+ * figure from a feed nobody has fetched would be inventing one.
+ *
+ * THE THREE STATES ARE KEPT APART. A monitor with no signal is not a monitor
+ * reporting no discharge, and collapsing offline into "not discharging" would
+ * turn missing information into reassurance.
+ */
+const stormLive = {
+  id: 'storm-live',
+  label: 'Live discharge status',
+  async read(pin, { base, controllers }) {
+    /* The feed is queried the moment the layer is switched on, and a pin
+     * dropped while that is still in flight would otherwise read as a failure.
+     * Wait for the controller to settle either way before deciding. */
+    const c = controllers?.get('storm-live');
+    if (!c?.getPrepared?.()) {
+      await new Promise((resolve) => {
+        let settled = false;
+        const done = () => { if (!settled) { settled = true; resolve(); } };
+        c?.onReady?.(done);
+        c?.onUnavailable?.(done);
+        setTimeout(done, 20000);
+      });
+    }
+    const prepared = c?.getPrepared?.();
+    if (!prepared?.data) {
+      return {
+        status: 'unavailable',
+        summary: 'no live snapshot — the company feeds did not respond',
+        items: [],
+      };
+    }
+    const boundary = await loadCatchmentBoundary(base);
+    const near = prepared.data.features
+      .map((f) => ({ p: f.properties, d: distKm(f.geometry.coordinates, pin) }))
+      .filter((o) => o.d <= RADIUS_KM)
+      .sort((a, b) => a.d - b.d);
+
+    const at = prepared.stats?.fetchedAt;
+    const taken = at
+      ? `Snapshot taken at ${new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}; not refreshed while this page is open.`
+      : 'Snapshot taken when the layer was switched on; not refreshed while this page is open.';
+    const failed = prepared.stats?.failed ?? [];
+    const partial = failed.length ? ` ${failed.join(' and ')} did not respond, so this snapshot is partial.` : '';
+
+    if (!near.length) {
+      if (!boundary.contains(pin)) {
+        return notCovered('not covered here — this layer maps outfalls on land and the shoreline');
+      }
+      let nearest = Infinity;
+      for (const f of prepared.data.features) nearest = Math.min(nearest, distKm(f.geometry.coordinates, pin));
+      return nothingHere(
+        Number.isFinite(nearest)
+          ? `no monitored outfall within ${RADIUS_KM} km — the nearest is ${nearest.toFixed(1)} km away`
+          : `no monitored outfall within ${RADIUS_KM} km`,
+      );
+    }
+    const on = near.filter((o) => o.p.status === 1);
+    const off = near.filter((o) => o.p.status === 0);
+    const dark = near.filter((o) => o.p.status === -1);
+    const state = [
+      `${n(on.length)} discharging`,
+      `${n(off.length)} not discharging`,
+      `${n(dark.length)} offline`,
+    ].join(', ');
+    // Discharging first, then offline, then quiet: the ones that say something
+    // come before the ones that say nothing.
+    const rank = (o) => (o.p.status === 1 ? 0 : o.p.status === -1 ? 1 : 2);
+    const listed = near.slice().sort((a, b) => rank(a) - rank(b) || a.d - b.d);
+    return reports(
+      `${plural(near.length, 'monitored outfall')} within ${RADIUS_KM} km · ${state}`,
+      listed.slice(0, 3).map((o) =>
+        `${away(o.d)}: ${o.p.name || o.p.id} — ${LIVE_LABEL[String(o.p.status)]}`),
+      {
+        more: Math.max(0, near.length - 3),
+        note: taken + partial,
+        caveat: 'A monitor with no signal is not a monitor reporting no discharge — offline is its own state, not a quiet one.',
+      },
+    );
+  },
+};
+
+/**
  * COASTAL EROSION RISK — polygons along the shoreline.
  *
  * NEVER "nothing here". NCERM maps shoreline frontages and nothing else: there
@@ -800,8 +891,8 @@ export const READERS = Object.fromEntries(
   [
     // Stage two-A — one of each geometry type, establishing the pattern.
     stormOverflows, marine, fisheries, water,
-    // Stage two-B batch one.
-    bathing, wfd, ncerm, licensing, wrecks, recreational, compound,
+    // Stage two-B batch one — the eight tractable layers.
+    bathing, wfd, stormLive, ncerm, licensing, wrecks, recreational, compound,
   ].map((r) => [r.id, r]),
 );
 
