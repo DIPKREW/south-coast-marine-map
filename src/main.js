@@ -11,6 +11,7 @@ import { readUrlState, applyUrlState, wireUrlState } from './ui/urlState.js';
 import { buildSearch } from './ui/search.js';
 import { createSiteBriefing } from './map/siteBriefing.js';
 import { createPlaceLookup } from './ui/placeLookup.js';
+import { createLiveStatusControl } from './ui/liveStatusControl.js';
 
 // Palette → CSS custom properties, so CSS and the map style share one source.
 applyTokens();
@@ -71,7 +72,13 @@ map.on('load', () => {
   // already cached can call back synchronously while buildControlPanel is still
   // running, which would otherwise reach `panel` before it is assigned.
   let panelHandle = null;
-  const syncDetail = () => detail.sync({ collapsed: panelHandle?.isCollapsed() ?? false });
+  // Assigned below; held in a variable for the same reason panelHandle is — the
+  // control is built after the panels, but syncDetail is wired into them.
+  let liveHandle = null;
+  const syncDetail = () => {
+    liveHandle?.sync();
+    detail.sync({ collapsed: panelHandle?.isCollapsed() ?? false });
+  };
 
   // Flying to a result moves the viewport, so the URL should follow — it goes
   // through the same debounced moveend path as a manual pan, no special case.
@@ -147,11 +154,50 @@ map.on('load', () => {
   };
   syncBriefing();
 
+  /*
+   * LIVE STATUS CONTROL — the snapshot time and the manual refresh for the live
+   * discharge layer, floating beneath the control panel.
+   *
+   * Refreshing CLEARS THE PIN and closes the briefing: a briefing read from the
+   * previous snapshot would sit next to a freshly refreshed map and disagree
+   * with it. The mode is left ARMED, so the next click re-pins against the new
+   * data — which is the reason someone refreshed in the first place. The control
+   * states this before the press; there is no confirmation dialogue.
+   */
+  const live = createLiveStatusControl({
+    controller: controllers.get('storm-live'),
+    onBeforeRefresh: () => {
+      briefing.clearPin(); // fires onChange → syncBriefing → the briefing closes
+    },
+    onChange: () => syncDetail(),
+  });
+  liveHandle = live;
+
   // The detail panel is mounted BEFORE the control panel so it stacks beneath
   // it: while hidden it sits tucked behind the main panel, and slides out to the
   // right from there.
   const app = document.getElementById('app');
-  app.append(detail.el, panel.el);
+
+  /*
+   * The control panel and the live status control share ONE absolutely
+   * positioned flex column, rather than each being placed at fixed coordinates.
+   *
+   * That is what makes the control follow the panel for free: expanded, it sits
+   * under a 312px panel; collapsed, the panel shrinks to its 46px button and the
+   * control rides up beneath it, still beside the thing that reopens the panel.
+   * No measuring, and nothing to go wrong mid-transition.
+   *
+   * The column is what the panel's height now yields to. It cannot be placed
+   * beside the panel instead: the panel sits at its 90vh cap and the detail
+   * panel occupies the entire strip to its right, so the only free space next to
+   * the control panel is below it. The panel's body already scrolls, so giving
+   * up ~60px of it costs a shorter scroll window and nothing else — the same
+   * trade the narrow-viewport rule already makes.
+   */
+  const column = document.createElement('div');
+  column.className = 'panel-column';
+  column.append(panel.el, live.el);
+  app.append(detail.el, column);
 
   syncDetail();
 

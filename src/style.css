@@ -92,18 +92,60 @@ body.is-ready .maplibregl-map {
 
 /* ---- Floating control panel (top-left) ------------------------------ */
 
-.panel {
+/*
+ * THE LEFT-HAND COLUMN: the control panel, and anything that must sit directly
+ * beneath it and follow its state. Today that is the live status control.
+ *
+ * The column carries the absolute positioning that used to be on .panel itself,
+ * so its children stack in normal flow. That is what makes the live status
+ * control track the panel with no measuring: expanded, it sits under a 312px
+ * panel; collapsed, the panel shrinks to its 46px button and the control rides
+ * up beneath it.
+ *
+ * Shrink-wrapped (align-items: flex-start) so the column is never wider than its
+ * widest child, and transparent to the pointer so the gap between the two never
+ * swallows a click meant for the map. The children take their events back.
+ *
+ * KNOWN, ACCEPTED, COSMETIC: the bottom of this column overlaps the attribution
+ * strip. The panel alone already did — at 1440x900 it ends at y=828 against an
+ * attribution starting around y=808 — and the live status control extends that
+ * by roughly two more lines within the column's 312px. Clearing the strip
+ * entirely would cost the panel about 75px of height on every viewport, for
+ * every visitor, to tidy an overlap in one corner of a control that is only
+ * present while one layer is on. Not worth it. The attribution remains fully
+ * legible to the right of the column, and nothing here covers the © links'
+ * hit targets — a click in the seam reaches them, which is verified.
+ */
+.panel-column {
   position: absolute;
   top: var(--panel-gap);
   left: var(--panel-gap);
   z-index: 10;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-height: calc(100vh - 2 * var(--panel-gap));
+  pointer-events: none;
+}
+.panel-column > * {
+  pointer-events: auto;
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   width: 312px;
   max-width: calc(100vw - 2 * var(--panel-gap));
   /* Never taller than the viewport: the masthead stays put and .panel__body
-     scrolls instead, so an expanded About section can't push content off-screen. */
+     scrolls instead, so an expanded About section can't push content off-screen.
+     Inside the column this is a CEILING, not the final word — flex-shrink hands
+     height back to the live status control when both are on screen, and the body
+     already scrolls, so the cost is a shorter scroll window and nothing else. */
   max-height: min(90vh, calc(100vh - 2 * var(--panel-gap)));
+  flex: 0 1 auto;
+  min-height: 0;
   padding: 22px 22px 20px;
   background: var(--surface);
   border: 1px solid var(--hairline);
@@ -694,6 +736,122 @@ body.is-ready .maplibregl-map {
 }
 
 
+/* ---- Live status control (under the control panel) ------------------- */
+
+/*
+ * The snapshot time and the manual refresh for the live discharge layer. Shown
+ * only while that layer is on; `hidden` has to be honoured explicitly because
+ * display:flex would otherwise beat it.
+ *
+ * Deliberately smaller and quieter than the panels — it is one fact and one
+ * button, not a third panel. It borrows the panel's surface, hairline, radius
+ * and shadow so it reads as the same family of object, and nothing else.
+ *
+ * Its width is the panel's, so the column edge stays straight while the panel is
+ * open; collapsed, the panel is 46px and this becomes the wider of the two, but
+ * a 312px strip under a small tab is still calmer than a control that changes
+ * width as you collapse the panel.
+ */
+.livestatus {
+  flex: none;
+  box-sizing: border-box;
+  width: 312px;
+  max-width: calc(100vw - 2 * var(--panel-gap));
+  padding: 9px 12px 10px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: saturate(1.05);
+}
+.livestatus[hidden] {
+  display: none;
+}
+
+.livestatus__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The time itself — the one line here that carries a figure, so it is the one
+   line set in the ink colour. */
+.livestatus__when {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.livestatus__refresh {
+  flex: none;
+  padding: 4px 10px;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+.livestatus__refresh:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--ink-muted);
+}
+.livestatus__refresh:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+.livestatus__refresh:disabled {
+  color: var(--ink-muted);
+  cursor: default;
+  opacity: 0.65;
+}
+
+/* What refreshing costs. Always on screen while the control is: a pin can be
+   dropped at any moment, so this has to be read before the press. */
+.livestatus__cost {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--ink-muted);
+}
+
+.livestatus__notes:not(:empty) {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--hairline);
+}
+
+.livestatus__note {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--ink-muted);
+}
+.livestatus__note + .livestatus__note {
+  margin-top: 3px;
+}
+
+/* Something is missing from the snapshot, or a refresh did not take. The live
+   discharge alert red, which is this layer's own colour — it is the layer's
+   completeness being reported, not a generic error. */
+.livestatus__note--warn {
+  color: var(--discharge-on);
+}
+
+/* While a refresh is in flight the whole control recedes slightly, so "this is
+   mid-change" is legible without an animation competing with the map. */
+.livestatus.is-busy .livestatus__when {
+  color: var(--ink-muted);
+}
+
+
 /* ---- Detail panel (second panel, slides out to the right) ------------ */
 
 /*
@@ -1138,6 +1296,16 @@ body.is-ready .maplibregl-map {
      nothing but a shorter scroll window. */
   .panel:not(.is-collapsed) {
     max-height: 48vh;
+  }
+
+  /* The whole left column has to clear the detail panel now that it is BELOW
+     rather than beside — otherwise the live status control, which hangs off the
+     panel's bottom edge, lands on the detail panel's top edge. The cap is the
+     viewport less the detail panel's own 42vh, its bottom gap and the seam; the
+     panel's flex-shrink absorbs it. With the control hidden the column is
+     shorter than this and nothing changes. */
+  .panel-column {
+    max-height: calc(100vh - 42vh - 3 * var(--panel-gap));
   }
 }
 
