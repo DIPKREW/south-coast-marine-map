@@ -84,7 +84,22 @@ async function fetchCompany(company, envelope, signal) {
       resultRecordCount: String(PAGE_SIZE),
       f: 'geojson',
     });
-    const res = await fetch(`${company.url}/query?${qs}`, { signal });
+    /*
+     * `cache: 'reload'` IS LOAD-BEARING, not a precaution.
+     *
+     * The companies serve these queries with `cache-control: public,
+     * max-age=300` (confirmed against Wessex Water). The query URL is identical
+     * every time, so without this the browser answers a repeat query from its
+     * own HTTP cache — measured at 1-5 ms against 687-1053 ms for a real round
+     * trip — and hands back a five-minute-old copy that `fetchedAt` would then
+     * stamp with the current time. A snapshot time that describes something
+     * other than what was fetched is exactly the failure this layer exists to
+     * avoid.
+     *
+     * This is a client-side cache mode, not a header, so it cannot turn these
+     * into preflighted cross-origin requests.
+     */
+    const res = await fetch(`${company.url}/query?${qs}`, { signal, cache: 'reload' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
     if (json.error) throw new Error(json.error.message || 'ArcGIS error');
