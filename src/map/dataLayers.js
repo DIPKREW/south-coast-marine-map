@@ -630,6 +630,20 @@ function addCropTilesLayer(map, layer, beforeId, { card, clearHover }) {
 
   const controller = {
     isVisible: () => (real ? real.isVisible() : false),
+    /*
+     * DECLARED HERE rather than left to applyDataLayers' fallback, which assumes
+     * a layer that was not deferred is already in the style and answers `true`.
+     * That holds for the layers added outright and for the inert placeholders.
+     * It does not hold for this one: it defers itself, and its PMTiles archive
+     * is fetched lazily, so `real` is null until that lands and a fallback
+     * `true` would claim data a reader cannot get at.
+     *
+     * Latent rather than live — crome is a Dorset land layer, currently dropped
+     * from the panel by SHOW_DORSET_LAND_LAYERS, so it is in no panel order and
+     * has no site briefing reader. This is here so that flipping that flag does
+     * not quietly turn it into a wrong answer.
+     */
+    isLoaded: () => Boolean(real),
     show: () => { want = true; real?.show(); },
     hide: () => { want = false; real?.hide(); },
     toggle: () => { want = !want; real?.toggle(); },
