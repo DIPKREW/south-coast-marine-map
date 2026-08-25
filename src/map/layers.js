@@ -1506,3 +1506,16 @@ export const panelGroups = allPanelGroups
       : {}),
   }))
   .filter((g) => g.layerIds.length > 0 || g.subgroups?.length > 0);
+
+/**
+ * CONTROL-PANEL ORDER, flattened: each group's own layers, then its subgroups'.
+ *
+ * The detail panel and the site briefing both enumerate layers in the order the
+ * control panel renders them, and the briefing's rows are read top to bottom
+ * against the toggles beside them. Derived here, once, from the same structure
+ * the panel itself renders, so the three cannot drift apart.
+ */
+export const panelOrder = panelGroups.flatMap((g) => [
+  ...(g.layerIds ?? []),
+  ...(g.subgroups ?? []).flatMap((s) => s.layerIds ?? []),
+]);

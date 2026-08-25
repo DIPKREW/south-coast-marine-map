@@ -4,7 +4,7 @@ import './style.css';
 import { applyTokens } from './design/tokens.js';
 import { createMap } from './map/createMap.js';
 import { applyDataLayers } from './map/dataLayers.js';
-import { dataLayers, panelGroups } from './map/layers.js';
+import { dataLayers, panelGroups, panelOrder } from './map/layers.js';
 import { buildControlPanel } from './ui/controlPanel.js';
 import { buildDetailPanel } from './ui/detailPanel.js';
 import { readUrlState, applyUrlState, wireUrlState } from './ui/urlState.js';
@@ -12,6 +12,7 @@ import { buildSearch } from './ui/search.js';
 import { createSiteBriefing } from './map/siteBriefing.js';
 import { createPlaceLookup } from './ui/placeLookup.js';
 import { createLiveStatusControl } from './ui/liveStatusControl.js';
+import { buildBriefingPane } from './ui/briefingPane.js';
 
 // Palette → CSS custom properties, so CSS and the map style share one source.
 applyTokens();
@@ -58,8 +59,19 @@ map.on('load', () => {
   const bumpUrl = () => url?.schedule();
 
   const detail = buildDetailPanel({
-    layers: dataLayers, groups: panelGroups, controllers,
+    layers: dataLayers, order: panelOrder, controllers,
     onStateChange: bumpUrl,
+  });
+
+  /*
+   * THE BRIEFING PANE. Its own pane rather than a section in the detail panel,
+   * and it takes the detail panel's slot rather than opening beside it — three
+   * panes would leave 10px of map at 1024 wide.
+   */
+  const briefingPane = buildBriefingPane({
+    order: panelOrder,
+    byId: new Map(dataLayers.map((l) => [l.id, l])),
+    controllers,
     briefing,
     base: import.meta.env.BASE_URL,
     // Recomputed rather than read off the address bar: the URL write is
@@ -75,9 +87,17 @@ map.on('load', () => {
   // Assigned below; held in a variable for the same reason panelHandle is — the
   // control is built after the panels, but syncDetail is wired into them.
   let liveHandle = null;
+  /*
+   * The one place the two panes are told about each other. A briefing is "open"
+   * when there is a pin; that hides the detail panel, and nothing is stored, so
+   * clearing the pin brings it back by recomputation rather than by restore.
+   */
   const syncDetail = () => {
     liveHandle?.sync();
-    detail.sync({ collapsed: panelHandle?.isCollapsed() ?? false });
+    const collapsed = panelHandle?.isCollapsed() ?? false;
+    const briefingOpen = briefing.getPin() != null;
+    briefingPane.sync({ collapsed });
+    detail.sync({ collapsed, briefingOpen });
   };
 
   // Flying to a result moves the viewport, so the URL should follow — it goes
@@ -108,6 +128,10 @@ map.on('load', () => {
      */
     onClear: () => {
       detail.reset();
+      // The briefing pane's own surviving state — the snapshot behind "Copy as
+      // text" and the open disclosures. It used to ride along in detail.reset()
+      // when it was a section in there.
+      briefingPane.clear();
       // Only fly if we are actually away from home, using urlState's own
       // tolerance, so Clear at the default view stays a true no-op.
       const c = map.getCenter();
@@ -146,8 +170,8 @@ map.on('load', () => {
       // Name from the LOCAL index — no network. Absent if nothing is near
       // enough to be honest about, in which case the panel shows coordinates
       // alone rather than inventing a name.
-      place.nearest(pin).then((name) => detail.updateBriefing({ place: name }));
-      detail.updateBriefing({});
+      place.nearest(pin).then((name) => briefingPane.update({ place: name }));
+      briefingPane.update({});
     }
     syncDetail();
     bumpUrl();
@@ -197,7 +221,9 @@ map.on('load', () => {
   const column = document.createElement('div');
   column.className = 'panel-column';
   column.append(panel.el, live.el);
-  app.append(detail.el, column);
+  // The briefing pane shares the detail panel's slot and is mounted after it,
+  // so it wins on a z-index tie; the control panel's column stays on top of both.
+  app.append(detail.el, briefingPane.el, column);
 
   syncDetail();
 

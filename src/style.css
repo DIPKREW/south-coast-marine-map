@@ -736,6 +736,82 @@ body.is-ready .maplibregl-map {
 }
 
 
+/* ---- Site briefing pane --------------------------------------------- */
+
+/*
+ * THE SAME SLOT AS THE DETAIL PANEL, deliberately — the two are never on screen
+ * together. Three panes do not fit: 312 + 330 + 330 plus the gaps ends at
+ * x=1014, which leaves 426px of map at 1440 wide, 266 at 1280 and 10 at 1024.
+ * So the detail panel yields while a briefing is open and this takes its place,
+ * at its coordinates and its width, which is also why every rule below is the
+ * detail panel's own geometry rather than a second set of numbers to keep in
+ * step with it.
+ *
+ * Mounted after .detail, so on a z-index tie this draws over it during the
+ * crossfade rather than under it.
+ */
+.briefing-pane {
+  position: absolute;
+  top: var(--panel-gap);
+  left: calc(var(--panel-gap) + 312px + 12px);
+  z-index: 9; /* under .panel-column (10), level with .detail */
+  display: flex;
+  flex-direction: column;
+  width: 330px;
+  max-width: calc(100vw - (var(--panel-gap) + 312px + 12px) - var(--panel-gap));
+  max-height: min(90vh, calc(100vh - 2 * var(--panel-gap)));
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: saturate(1.05);
+
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-26px);
+  transition: opacity 240ms ease, transform 300ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    visibility 0s linear 240ms;
+}
+
+.briefing-pane.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  transition: opacity 240ms ease, transform 300ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    visibility 0s;
+}
+
+/* Only this scrolls, so the heading stays put however long the readout runs. */
+.briefing-pane__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-right: -10px;
+  padding-right: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline) transparent;
+}
+
+/* Narrow: below the control panel, sharing its left edge — the detail panel's
+   own rule, and for the same reason. The two still never coexist. */
+@media (max-width: 900px) {
+  .briefing-pane {
+    left: var(--panel-gap);
+    top: auto;
+    bottom: var(--panel-gap);
+    width: 312px;
+    max-width: calc(100vw - 2 * var(--panel-gap));
+    max-height: 42vh;
+    transform: translateY(-18px);
+  }
+  .briefing-pane.is-visible {
+    transform: translateY(0);
+  }
+}
+
+
 /* ---- Live status control (under the control panel) ------------------- */
 
 /*
@@ -1566,8 +1642,12 @@ body.is-ready .maplibregl-map {
   color: var(--ink-muted);
 }
 
-/* ---- Site briefing: the readout shell in the second panel ---- */
-.detail__section--briefing .detail__section-title { color: var(--accent); }
+/* ---- Site briefing: the readout, in its own pane ---- */
+/* The pane borrows the detail panel's section heading, swatch and title styles
+   rather than restating them — it is the same kind of object, and the only
+   difference is the accent on the title. */
+.briefing-pane .detail__section-title { color: var(--accent); }
+.briefing-pane .detail__section-head { margin-bottom: 0; }
 
 .briefing__where {
   margin: 8px 0 0;
