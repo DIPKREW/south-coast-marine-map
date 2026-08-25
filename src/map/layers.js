@@ -494,7 +494,7 @@ const allDataLayers = [
       title: 'About live discharge status',
       body: [
         "Water companies publish the current state of every storm overflow — discharging or not — to the National Storm Overflow Hub, normally within an hour of it changing. Four companies operate along this coastline: South West Water, Southern Water, Wessex Water and Thames Water.",
-        'This is fetched once, when you switch the layer on, and is not refreshed while the page is open — reload for a newer picture. Where a monitor is offline the dot is drawn faint rather than clear: an overflow with no signal is not the same as one known to be quiet.',
+        'This is fetched when you switch the layer on, and stays as it was until you ask for it again: the live status control beside the panel shows when the snapshot was taken and refreshes all four feeds on request. Where a monitor is offline the dot is drawn faint rather than clear: an overflow with no signal is not the same as one known to be quiet.',
       ],
     },
     card: (p) => ({

@@ -23,6 +23,7 @@
  * EDM permit condition, which is EA's own and is worded as such.
  */
 import { loadCatchmentBoundary } from './catchmentBoundary.js';
+import { snapshotTime, partialNote } from './liveOverflows.js';
 
 /** Reporting radius, in kilometres. Also stated on the panel. */
 export const RADIUS_KM = 3;
@@ -536,10 +537,17 @@ const wfd = {
 /**
  * LIVE DISCHARGE STATUS — points, fetched on toggle.
  *
- * The only reader with no committed file behind it. The feed is queried once
- * when the layer is switched on and never refreshed, so the reader takes the
- * prepared data and its fetch time from the controller rather than re-fetching
- * — a second query would produce a briefing that disagrees with the map.
+ * The only reader with no committed file behind it. The feed is queried when the
+ * layer is switched on, so the reader takes the prepared data and its fetch time
+ * from the controller rather than re-fetching — a second query would produce a
+ * briefing that disagrees with the map.
+ *
+ * That snapshot can now be REPLACED, by the manual refresh on the floating
+ * live-status control. Nothing here has to react: the refresh swaps the
+ * controller's prepared object and the map's data in one step, and it clears the
+ * pin as it goes, so no briefing outlives the snapshot it was read from. The
+ * time quoted below is formatted by the same `snapshotTime` the control uses,
+ * which is what stops the two surfaces wording one moment two ways.
  *
  * If the layer is off there is no snapshot, and the framework's "not loaded"
  * line stands. That is the correct answer and not a limitation: reporting a
@@ -580,12 +588,12 @@ const stormLive = {
       .filter((o) => o.d <= RADIUS_KM)
       .sort((a, b) => a.d - b.d);
 
-    const at = prepared.stats?.fetchedAt;
-    const taken = at
-      ? `Snapshot taken at ${new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}; not refreshed while this page is open.`
-      : 'Snapshot taken when the layer was switched on; not refreshed while this page is open.';
-    const failed = prepared.stats?.failed ?? [];
-    const partial = failed.length ? ` ${failed.join(' and ')} did not respond, so this snapshot is partial.` : '';
+    const time = snapshotTime(prepared.stats);
+    const taken = time
+      ? `Snapshot taken at ${time}; refresh it from the live status control beside the panel.`
+      : 'Snapshot taken when the layer was switched on; refresh it from the live status control beside the panel.';
+    const note = partialNote(prepared.stats);
+    const partial = note ? ` ${note}` : '';
 
     if (!near.length) {
       if (!boundary.contains(pin)) {
