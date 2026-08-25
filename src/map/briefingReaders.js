@@ -136,6 +136,60 @@ const plural = (c, word, many) => `${n(c)} ${c === 1 ? word : many ?? `${word}s`
  *  polygon it is plainly standing in. */
 const away = (d) => (d < 1 ? `${Math.max(10, Math.round(d * 1000 / 10) * 10)} m away` : `${d.toFixed(1)} km away`);
 
+/* ---- land or sea ----------------------------------------------------------
+ *
+ * Several layers describe only the sea (wrecks, marine licences) or only the
+ * shoreline (coastal erosion), and their silences are unreadable without
+ * knowing which side of the coast the pin is on: "no mapped frontage within
+ * 3 km" means something different 40 km out to sea than it does 15 km inland.
+ *
+ * The catchment boundary CANNOT answer this and was tried first. It is a
+ * drainage boundary, so it contains both inland ground and a wide apron of
+ * near-shore sea — the stage two-A test pin south of Selsey is 9.3 km offshore
+ * and inside it.
+ *
+ * OSM's own convention answers it instead: `natural=coastline` ways are
+ * directed with LAND ON THE LEFT. Take the nearest segment of the committed
+ * coastline and the sign of the cross product gives the side. Checked against
+ * eleven hand-picked points — five at sea from mid-Channel to Plymouth Sound,
+ * six inland from Exeter to Salisbury — and correct on all eleven, so the
+ * direction survived the 4% simplification in scripts/fetch-coastline.mjs.
+ *
+ * Only ever consulted to EXPLAIN A SILENCE, never to produce a figure. By the
+ * time it is asked, nothing is within 3 km of the pin, so the near-shore case
+ * where the side is genuinely ambiguous does not arise. */
+async function sideOfCoast(pin, base) {
+  const fc = await loadJson(`${base}data/coastline.geojson`);
+  const k = kx(pin[1]);
+  const px = pin[0] * k;
+  const py = pin[1] * KY;
+  let best = Infinity;
+  let cross = 0;
+  for (const f of fc.features) {
+    const line = f.geometry?.coordinates;
+    if (!line) continue;
+    for (let i = 0; i < line.length - 1; i++) {
+      const ax = line[i][0] * k, ay = line[i][1] * KY;
+      const bx = line[i + 1][0] * k, by = line[i + 1][1] * KY;
+      const dx = bx - ax, dy = by - ay;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+      const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+      if (d < best) { best = d; cross = dx * (py - ay) - dy * (px - ax); }
+    }
+  }
+  return { side: cross > 0 ? 'land' : 'sea', km: best };
+}
+
+/** The half-sentence that says where the pin is, for a layer that only covers
+ *  one side of the coast. */
+async function whichSide(pin, base) {
+  const { side, km } = await sideOfCoast(pin, base);
+  return side === 'land'
+    ? `this point is ${km.toFixed(1)} km inland`
+    : `this point is ${km.toFixed(1)} km out to sea`;
+}
+
 /* ---- the readers ----------------------------------------------------------- */
 
 /**
@@ -395,6 +449,251 @@ const bathing = {
 };
 
 /**
+ * WATER BODY STATUS — polygons. Contains-or-near, like the designations.
+ *
+ * THE SHORELINE PROBLEM. WFD polygons stop at the water's edge, so a pin on a
+ * beach is routinely outside every one of them while plainly standing in
+ * coastal water. Measured against the 193 bathing water points, which sit on
+ * that same edge: only 69 fall inside a polygon, but 87 of the remaining 124
+ * are within 50 m and 110 within 100 m. Treating those as silence would be
+ * wrong twice over — it is neither "nothing here" nor "not covered".
+ *
+ * So the same contains/near split the designations use, with `away()` giving
+ * metres below a kilometre. A pin 60 m off Portsmouth Harbour reports
+ * Portsmouth Harbour and says it is 60 m outside it.
+ *
+ * NEVER "nothing here". WFD classifies estuaries and the coastal strip and
+ * nothing else, so its scope and its polygons are the same object: there is no
+ * place that WFD covers but has no water body. Beyond the radius the answer is
+ * always "not covered", and the reason is the scope, not the pin.
+ */
+const wfd = {
+  id: 'wfd',
+  label: 'Water body status',
+  async read(pin, { base }) {
+    const fc = await loadJson(`${base}data/wfd-coastal.geojson`);
+    const all = fc.features
+      .filter((f) => f.geometry)
+      .map((f) => ({ p: f.properties, in: containsPoint(f.geometry, pin), d: distanceToGeometry(f.geometry, pin) }));
+    const inside = all.filter((o) => o.in);
+    const near = all.filter((o) => !o.in && o.d <= RADIUS_KM).sort((a, b) => a.d - b.d);
+
+    if (!inside.length && !near.length) {
+      return notCovered(
+        `not covered here — WFD classifies estuaries and the coastal strip, and ${await whichSide(pin, base)}`,
+      );
+    }
+    const line = (o, where) => {
+      const kind = o.p.wbtype === 'Transitional' ? 'estuary' : 'coastal water';
+      const bits = [o.p.eco ? `${o.p.eco} ecological` : null, o.p.chem ? `${o.p.chem} chemical` : null]
+        .filter(Boolean).join(', ');
+      return `${where}: ${o.p.name} (${kind}) — ${bits || 'not classified'}, ${o.p.year}`;
+    };
+    const bits = [];
+    if (inside.length) bits.push(`${plural(inside.length, 'water body', 'water bodies')} contain${inside.length === 1 ? 's' : ''} this point`);
+    if (near.length) {
+      bits.push(inside.length
+        ? `${n(near.length)} more within ${RADIUS_KM} km`
+        : `${plural(near.length, 'water body', 'water bodies')} within ${RADIUS_KM} km, none containing this point`);
+    }
+    return reports(
+      bits.join(' · '),
+      [
+        ...inside.slice(0, 2).map((o) => line(o, 'contains this point')),
+        ...near.slice(0, 2).map((o) => line(o, away(o.d))),
+      ],
+      {
+        more: Math.max(0, inside.length + near.length - Math.min(inside.length, 2) - Math.min(near.length, 2)),
+        caveat: 'A classification is of the whole water body, not of the pin — these are stretches of coast and estuary, not points.',
+      },
+    );
+  },
+};
+
+/**
+ * COASTAL EROSION RISK — polygons along the shoreline.
+ *
+ * NEVER "nothing here". NCERM maps shoreline frontages and nothing else: there
+ * is no offshore NCERM and no inland NCERM, so a pin with no frontage within
+ * 3 km is outside what the layer describes rather than at a stretch of coast it
+ * found nothing at. Every silence is "not covered".
+ *
+ * The two silences that look identical are told apart. A pin mid-Channel and a
+ * pin fifteen kilometres inland both get no frontage, for opposite reasons, and
+ * the line says which — see sideOfCoast above for how, and why the catchment
+ * boundary could not do it.
+ *
+ * An empty def_type is a GAP, never "undefended": 43% of frontages have nothing
+ * in that field, and the build carries it through as null for exactly this
+ * reason.
+ */
+const ncerm = {
+  id: 'ncerm',
+  label: 'Coastal erosion risk',
+  async read(pin, { base }) {
+    const fc = await loadJson(`${base}data/ncerm.geojson`);
+    const scored = fc.features
+      .filter((f) => f.geometry)
+      .map((f) => ({ p: f.properties, in: containsPoint(f.geometry, pin), d: distanceToGeometry(f.geometry, pin) }))
+      .filter((o) => o.d <= RADIUS_KM);
+
+    if (!scored.length) {
+      let nearest = Infinity;
+      for (const f of fc.features) nearest = Math.min(nearest, distanceToGeometry(f.geometry, pin));
+      const side = await whichSide(pin, base);
+      return notCovered(
+        `not covered here — this layer maps the shoreline, and ${side}` +
+          (Number.isFinite(nearest) ? ` · nearest mapped frontage ${nearest.toFixed(1)} km away` : ''),
+      );
+    }
+    scored.sort((a, b) => b.p.risk - a.p.risk || a.d - b.d);
+    const top = scored[0];
+    const recess = scored.map((o) => o.p.dist).filter((v) => v != null);
+    const span = recess.length
+      ? (Math.min(...recess) === Math.max(...recess)
+        ? `${Math.max(...recess)} m projected recession by 2055`
+        : `${Math.min(...recess)}–${Math.max(...recess)} m projected recession by 2055`)
+      : null;
+    const smps = [...new Set(scored.map((o) => o.p.smp).filter(Boolean))];
+    return reports(
+      `${plural(scored.length, 'frontage')} within ${RADIUS_KM} km · highest risk here is ${(EROSION[top.p.risk] ?? 'unknown').toLowerCase()}`,
+      [
+        span,
+        `${top.in ? 'contains this point' : away(top.d)}: ${EROSION[top.p.risk] ?? 'Unknown'} risk` +
+          (top.p.def ? `, ${top.p.def}` : ', defence type not recorded'),
+        smps.length ? `Shoreline Management Plan: ${smps.slice(0, 2).join('; ')}` : null,
+      ].filter(Boolean),
+      {
+        // No "and N more" here: the items are a span, a frontage and an SMP
+        // area rather than a list of frontages, so a remainder count would be
+        // counting something the reader cannot see the start of. The total is
+        // already the first thing the summary says.
+        caveat: 'Risk is the no-active-intervention scenario, and an unrecorded defence type is a gap in the register, not an undefended shore.',
+      },
+    );
+  },
+};
+
+/**
+ * DREDGING & EXTRACTION — polygons. MMO's marine licence register.
+ *
+ * Coverage is the SEA. A licence to dredge or dispose is a marine consent, so a
+ * pin inland is outside the register's scope; a pin at sea with no licence
+ * within 3 km is a real finding about that water.
+ */
+const licensing = {
+  id: 'licensing',
+  label: 'Dredging & extraction',
+  async read(pin, { base }) {
+    const fc = await loadJson(`${base}data/marine-licensing.geojson`);
+    /* A single licence is often several parcels, so collapse by its reference
+     * before counting — otherwise "10 licensed areas" counts the same consent
+     * twice and lists it twice underneath. */
+    const byRef = new Map();
+    for (const f of fc.features) {
+      if (!f.geometry) continue;
+      const key = f.properties.ref || f.properties.title || JSON.stringify(f.properties);
+      const cur = byRef.get(key) ?? { p: f.properties, in: false, d: Infinity };
+      if (containsPoint(f.geometry, pin)) cur.in = true;
+      cur.d = Math.min(cur.d, distanceToGeometry(f.geometry, pin));
+      byRef.set(key, cur);
+    }
+    const all = [...byRef.values()];
+    const near = all.filter((o) => o.d <= RADIUS_KM).sort((a, b) => (b.in - a.in) || a.d - b.d);
+
+    if (!near.length) {
+      const { side, km } = await sideOfCoast(pin, base);
+      if (side === 'land') {
+        return notCovered(`not covered here — this is a marine licence register and this point is ${km.toFixed(1)} km inland`);
+      }
+      const nearest = Math.min(...all.map((o) => o.d));
+      return nothingHere(
+        Number.isFinite(nearest)
+          ? `none within ${RADIUS_KM} km — the nearest licensed area is ${nearest.toFixed(1)} km away`
+          : `none within ${RADIUS_KM} km`,
+      );
+    }
+    const inside = near.filter((o) => o.in);
+    const bits = [`${plural(near.length, 'licensed area')} within ${RADIUS_KM} km`];
+    if (inside.length) bits.push(`${n(inside.length)} containing this point`);
+    return reports(
+      bits.join(' · '),
+      near.slice(0, 3).map((o) => {
+        const when = [o.p.start, o.p.end].filter(Boolean).map((d) => String(d).slice(0, 4));
+        return `${o.in ? 'contains this point' : away(o.d)}: ${o.p.title || o.p.type} — ${o.p.type}` +
+          (o.p.status ? `, ${o.p.status}` : '') + (when.length === 2 ? ` (${when[0]}–${when[1]})` : '');
+      }),
+      {
+        more: Math.max(0, near.length - 3),
+        caveat: 'A licence is a permission to act, not a record of work carried out.',
+      },
+    );
+  },
+};
+
+/**
+ * SHIPWRECKS — points, with Historic England's protected sites kept separate.
+ *
+ * The two sources are counted apart because they are different facts: a UKHO
+ * record is a hazard to navigation, a Historic England designation is a legal
+ * protection. Protected sites are listed first however far they are, since
+ * there are only 31 in the corridor and one within 3 km is the more notable
+ * thing on the line.
+ *
+ * Coverage is the SEA, as with the licence register.
+ */
+const wrecks = {
+  id: 'wrecks',
+  label: 'Shipwrecks',
+  async read(pin, { base }) {
+    const [fc, prot] = await Promise.all([
+      loadJson(`${base}data/wrecks.geojson`),
+      loadJson(`${base}data/wrecks-protected.geojson`),
+    ]);
+    const near = fc.features
+      .map((f) => ({ p: f.properties, d: distKm(f.geometry.coordinates, pin) }))
+      .filter((o) => o.d <= RADIUS_KM).sort((a, b) => a.d - b.d);
+    const nearProt = prot.features
+      .map((f) => ({ p: f.properties, d: distKm(f.geometry.coordinates, pin) }))
+      .filter((o) => o.d <= RADIUS_KM).sort((a, b) => a.d - b.d);
+
+    if (!near.length && !nearProt.length) {
+      const { side, km } = await sideOfCoast(pin, base);
+      if (side === 'land') {
+        return notCovered(`not covered here — UKHO records wrecks on the seabed and this point is ${km.toFixed(1)} km inland`);
+      }
+      let nearest = Infinity;
+      for (const f of fc.features) nearest = Math.min(nearest, distKm(f.geometry.coordinates, pin));
+      return nothingHere(
+        Number.isFinite(nearest)
+          ? `none within ${RADIUS_KM} km — the nearest recorded wreck is ${nearest.toFixed(1)} km away`
+          : `none within ${RADIUS_KM} km`,
+      );
+    }
+    const dangerous = near.filter((o) => String(o.p.cat || '').includes('dangerous')).length;
+    const bits = [`${plural(near.length, 'recorded wreck')} within ${RADIUS_KM} km`];
+    if (nearProt.length) bits.push(`${plural(nearProt.length, 'Historic England protected site')}`);
+    else if (dangerous) bits.push(`${n(dangerous)} classed dangerous`);
+    const named = near.filter((o) => o.p.name);
+    return reports(
+      bits.join(' · '),
+      [
+        ...nearProt.slice(0, 2).map((o) => `protected site, ${away(o.d)}: ${o.p.name} — designated ${o.p.designated}`),
+        ...named.slice(0, 2).map((o) =>
+          `${away(o.d)}: ${o.p.name}` +
+          [o.p.type, o.p.sunk ? `lost ${o.p.sunk}` : null].filter(Boolean).map((x) => ` — ${x}`).join('')),
+      ],
+      {
+        note: named.length < near.length
+          ? `${plural(near.length - named.length, 'wreck')} within ${RADIUS_KM} km carry no name`
+          : null,
+        caveat: 'Only 54% of these wrecks carry a name and 44% have neither name nor date — a sparse record is the register being honest.',
+      },
+    );
+  },
+};
+
+/**
  * RECREATIONAL PRESSURE — a grid, like commercial fishing.
  *
  * EVERY CELL CARRIES A REAL VALUE. None is null, none is zero, and the lowest
@@ -501,8 +800,8 @@ export const READERS = Object.fromEntries(
   [
     // Stage two-A — one of each geometry type, establishing the pattern.
     stormOverflows, marine, fisheries, water,
-    // Stage two-B batch one — the registers and grids.
-    bathing, recreational, compound,
+    // Stage two-B batch one.
+    bathing, wfd, ncerm, licensing, wrecks, recreational, compound,
   ].map((r) => [r.id, r]),
 );
 
