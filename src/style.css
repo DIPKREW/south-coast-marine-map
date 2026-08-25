@@ -1448,14 +1448,45 @@ body.is-ready .maplibregl-map {
 .briefing__row-name { color: var(--ink); }
 .briefing__row.is-off .briefing__row-name { color: var(--ink-muted); }
 .briefing__row-state {
-  flex: none;
   font-family: var(--font-mono);
   font-size: 10.5px;
   letter-spacing: 0.03em;
   color: var(--ink-muted);
 }
-.briefing__row.is-off .briefing__row-state::after {
-  content: ' · not loaded';
-  color: var(--ink-muted);
-  opacity: 0.75;
+
+/* ---- Site briefing: per-layer readout ---- */
+.briefing__actions { display: flex; gap: 7px; margin-top: 7px; }
+
+.briefing__row {
+  display: grid;
+  grid-template-columns: minmax(38%, 1fr) minmax(0, auto);
+  gap: 2px 10px;
+  align-items: baseline;
+  padding: 6px 0;
 }
+.briefing__row-items {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  padding: 0 0 0 10px;
+  list-style: none;
+  border-left: 2px solid var(--hairline);
+}
+.briefing__row-items:empty { display: none; }
+
+.briefing__item {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-muted);
+}
+.briefing__item--more { font-style: italic; opacity: 0.85; }
+
+.briefing__item--caveat { color: var(--ink); opacity: 0.75; margin-top: 3px; }
+
+/* The three silences read differently at a glance, but none of them reads as
+   an error — a silent layer is a finding, not a failure. */
+.briefing__row[data-status='reports'] .briefing__row-state { color: var(--ink); }
+.briefing__row[data-status='nothing-here'] .briefing__row-state { color: var(--ink-muted); }
+.briefing__row[data-status='not-covered'] .briefing__row-state { color: var(--ink-muted); font-style: italic; }
+.briefing__row[data-status='no-data'] .briefing__row-state { color: var(--ink-muted); font-style: italic; opacity: 0.8; }
+.briefing__row[data-status='unavailable'] .briefing__row-state { color: var(--accent-strong); }
+.briefing__row-state { text-align: right; overflow-wrap: break-word; }

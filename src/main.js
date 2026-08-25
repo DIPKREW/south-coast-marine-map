@@ -60,6 +60,7 @@ map.on('load', () => {
     layers: dataLayers, groups: panelGroups, controllers,
     onStateChange: bumpUrl,
     briefing,
+    base: import.meta.env.BASE_URL,
   });
 
   // Held in a variable rather than closed over directly: a layer whose data is

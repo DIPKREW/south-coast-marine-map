@@ -24,8 +24,9 @@
  * or the main panel collapses/expands.
  */
 import { el } from './dom.js';
+import { READERS, NO_DATA_LAYERS, RADIUS_KM } from '../map/briefingReaders.js';
 
-export function buildDetailPanel({ layers, groups, controllers, onStateChange, briefing }) {
+export function buildDetailPanel({ layers, groups, controllers, onStateChange, briefing, base }) {
   const panel = el('aside', 'detail', { 'aria-label': 'Layer details', 'aria-live': 'polite' });
   const body = el('div', 'detail__body');
   panel.appendChild(body);
@@ -119,7 +120,7 @@ export function buildDetailPanel({ layers, groups, controllers, onStateChange, b
    */
   let briefingApi = null;
   if (briefing) {
-    briefingApi = buildBriefingSection({ layers, order, byId, controllers, briefing });
+    briefingApi = buildBriefingSection({ layers, order, byId, controllers, briefing, base });
     body.appendChild(briefingApi.el);
     sections.push({ el: briefingApi.el, about: null, isOn: () => briefing.getPin() != null, wasOn: false });
     resetters.push(() => briefingApi.clear());
@@ -163,7 +164,7 @@ export function buildDetailPanel({ layers, groups, controllers, onStateChange, b
    */
   const reset = () => resetters.forEach((fn) => fn());
 
-  return { el: panel, sync, reset, updateBriefing: (info) => briefingApi?.update(info) };
+  return { el: panel, sync, reset, updateBriefing: (info) => briefingApi?.update(info), briefingText: () => briefingApi?.asText() ?? '' };
 }
 
 /**
@@ -175,7 +176,7 @@ export function buildDetailPanel({ layers, groups, controllers, onStateChange, b
  * line each saying so — and that it can tell which of them are currently
  * loaded, because a briefing reads from loaded data.
  */
-function buildBriefingSection({ layers, order, byId, controllers, briefing }) {
+function buildBriefingSection({ layers, order, byId, controllers, briefing, base }) {
   const root = el('section', 'detail__section detail__section--briefing', { 'data-briefing': 'true' });
 
   const head = el('header', 'detail__section-head');
@@ -191,6 +192,7 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing }) {
   root.append(where, radius);
 
   const loadNote = el('p', 'briefing__loadnote');
+  const actions = el('div', 'briefing__actions');
   const loadBtn = el('button', 'briefing__loadbtn', { type: 'button' });
   loadBtn.textContent = 'Load them';
   /*
@@ -201,7 +203,10 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing }) {
   loadBtn.addEventListener('click', () => {
     for (const id of order) controllers.get(id)?.show?.();
   });
-  root.append(loadNote, loadBtn);
+  const copyBtn = el('button', 'briefing__loadbtn', { type: 'button' });
+  copyBtn.textContent = 'Copy as text';
+  actions.append(loadBtn, copyBtn);
+  root.append(loadNote, actions);
 
   const list = el('ul', 'briefing__list');
   const rows = new Map();
@@ -213,56 +218,134 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing }) {
     name.textContent = layer.detailLabel ?? layer.label;
     const state = el('span', 'briefing__row-state');
     state.textContent = 'pending';
-    li.append(name, state);
+    const detail = el('ul', 'briefing__row-items');
+    li.append(name, state, detail);
     list.appendChild(li);
-    rows.set(id, { li, state });
+    rows.set(id, { li, state, detail, label: layer.detailLabel ?? layer.label });
   }
   root.appendChild(list);
+
+  /* Last rendered state, kept so "Copy as text" reproduces exactly what is on
+   * screen rather than re-deriving it and risking a different answer. */
+  let snapshot = null;
+
+  const STATUS_TEXT = {
+    'no-data': 'no data anywhere in the corridor',
+    'not-loaded': 'not loaded',
+    pending: 'pending',
+  };
+
+  const render = (id, result) => {
+    const r = rows.get(id);
+    if (!r) return;
+    r.state.textContent = result.summary ?? STATUS_TEXT[result.status] ?? result.status;
+    r.li.dataset.status = result.status;
+    r.detail.replaceChildren();
+    for (const item of result.items ?? []) {
+      const li = el('li', 'briefing__item');
+      li.textContent = item;
+      r.detail.appendChild(li);
+    }
+    if (result.more) {
+      const li = el('li', 'briefing__item briefing__item--more');
+      li.textContent = `… and ${result.more} more`;
+      r.detail.appendChild(li);
+    }
+    if (result.note) {
+      const li = el('li', 'briefing__item briefing__item--more');
+      li.textContent = result.note;
+      r.detail.appendChild(li);
+    }
+    if (result.caveat) {
+      const li = el('li', 'briefing__item briefing__item--caveat');
+      li.textContent = result.caveat;
+      r.detail.appendChild(li);
+    }
+  };
+
+  /** One token per pin, so a slow read from an abandoned pin cannot paint over
+   *  the current one. */
+  let token = 0;
 
   const update = (info) => {
     const pin = briefing.getPin();
     if (!pin) return;
+    const mine = ++token;
     const [lon, lat] = pin;
     const coords = `${lat.toFixed(4)}°N, ${Math.abs(lon).toFixed(4)}°${lon < 0 ? 'W' : 'E'}`;
-    // Coordinates lead. Any name is a SECOND line and is labelled for what it
-    // is — the nearest named feature, not a place name; see placeLookup.js.
     where.textContent = info?.place ? `${coords}\n${info.place}` : coords;
-    radius.textContent = `Reporting on everything within ${briefing.radiusKm} km of this point.`;
+    radius.textContent = `Reporting on everything within ${RADIUS_KM} km of this point.`;
+
     const off = order.filter((id) => !controllers.get(id)?.isVisible?.());
-    for (const [id, r] of rows) {
-      const on = controllers.get(id)?.isVisible?.();
-      r.state.textContent = 'pending';
-      r.li.classList.toggle('is-off', !on);
-    }
     loadNote.textContent = off.length
       ? `${off.length} of ${rows.size} layers are not loaded. A briefing reads from loaded data, so those cannot be reported on yet.`
       : 'Every layer is loaded.';
     loadBtn.hidden = off.length === 0;
+
+    const results = new Map();
+    const pending = [];
+    for (const [id, r] of rows) {
+      r.li.classList.toggle('is-off', !controllers.get(id)?.isVisible?.());
+      let result;
+      if (NO_DATA_LAYERS.has(id)) result = { status: 'no-data', items: [] };
+      else if (!controllers.get(id)?.isVisible?.()) result = { status: 'not-loaded', items: [] };
+      else if (!READERS[id]) result = { status: 'pending', items: [] };
+      else {
+        result = { status: 'reading', summary: 'reading…', items: [] };
+        pending.push(
+          READERS[id].read(pin, { base }).then(
+            (out) => { if (mine === token) { results.set(id, out); render(id, out); } },
+            (err) => {
+              const out = { status: 'unavailable', summary: `could not be read (${err.message})`, items: [] };
+              if (mine === token) { results.set(id, out); render(id, out); }
+            },
+          ),
+        );
+      }
+      results.set(id, result);
+      render(id, result);
+    }
+    snapshot = { coords, place: info?.place ?? null, results };
+    Promise.all(pending).then(() => { if (mine === token) snapshot = { coords, place: info?.place ?? null, results }; });
   };
 
-  return { el: root, update, clear: () => { loadBtn.hidden = true; } };
+  /**
+   * COPY AS TEXT — the whole briefing, silent layers included.
+   *
+   * Every line is carried, because a briefing that quietly dropped its silences
+   * when pasted into an email would lose the half of it that is the point.
+   */
+  const asText = () => {
+    if (!snapshot) return '';
+    const lines = ['SITE BRIEFING', snapshot.coords];
+    if (snapshot.place) lines.push(snapshot.place);
+    lines.push(`Everything within ${RADIUS_KM} km of this point.`, '');
+    for (const [id, r] of rows) {
+      const res = snapshot.results.get(id) ?? { status: 'pending' };
+      lines.push(`${r.label}: ${res.summary ?? STATUS_TEXT[res.status] ?? res.status}`);
+      for (const item of res.items ?? []) lines.push(`    ${item}`);
+      if (res.more) lines.push(`    … and ${res.more} more`);
+      if (res.note) lines.push(`    ${res.note}`);
+      if (res.caveat) lines.push(`    ${res.caveat}`);
+    }
+    lines.push('', 'South Coast Marine Recovery Map. Figures are per layer; no relationship between layers is implied.');
+    return lines.join('\n');
+  };
+
+  copyBtn.addEventListener('click', async () => {
+    const text = asText();
+    try {
+      await navigator.clipboard.writeText(text);
+      copyBtn.textContent = 'Copied';
+    } catch {
+      copyBtn.textContent = 'Copy failed';
+    }
+    setTimeout(() => { copyBtn.textContent = 'Copy as text'; }, 1800);
+  });
+
+  return { el: root, update, asText, clear: () => { loadBtn.hidden = true; snapshot = null; } };
 }
 
-/**
- * A layer's About text, behind a chevron and CLOSED by default.
- *
- * The prose is the long part of a section — one to three paragraphs each — and
- * with several layers on it pushed everything below it off the bottom of the
- * panel. The legend and the species checklist stay visible unconditionally;
- * only this collapses.
- *
- * The disclosure is the same one the old inline main-panel About used (and that
- * the species checklist still uses): a caret that rotates, and a grid-rows
- * transition that animates intrinsic height. Its styling is shared with the
- * checklist's rather than duplicated — see the grouped selectors in style.css.
- *
- * The registry's authored `title` is deliberately NOT rendered: the section is
- * already headed by the layer's name, so "About marine protected areas" under
- * "Marine protected areas" said it twice. The label is a plain "About" instead.
- * Only that heading string is dropped — every paragraph of the prose is copied
- * verbatim, and several are still marked "proposed, for review", so this remains
- * a relocation rather than an approval of any pending wording.
- */
 function buildAbout({ body }) {
   const root = el('div', 'detail__about');
 
