@@ -10,15 +10,32 @@
  * feature services: no API key, no registration, and they send
  * `access-control-allow-origin: *`, so the browser can read them directly.
  *
- * Fetched ONCE per page load — and, because the layer is lazy, only if someone
- * actually switches it on. There is deliberately no polling loop: the companies
+ * Fetched ON TOGGLE — and, because the layer is lazy, only if someone actually
+ * switches it on. There is still deliberately no polling loop: the companies
  * publish within ~60 minutes of an overflow starting or stopping, so a refresh
- * is a real feature worth designing (with a visible "as of" time and a manual
- * refresh), not something to bolt on invisibly.
+ * is a designed feature rather than something bolted on invisibly. That feature
+ * now EXISTS — src/ui/liveStatusControl.js floats a small control beside the
+ * control panel whenever this layer is on, showing the snapshot time this
+ * function stamps and offering a manual re-fetch. `fetchedAt` is therefore read
+ * by two surfaces (that control and the site briefing), and both format it
+ * through `snapshotTime` below so they cannot word the same moment differently.
  *
  * A failure of ONE company degrades rather than breaks: the layer draws whatever
  * did come back and reports what didn't. Only an all-companies failure marks the
  * layer unavailable.
+ *
+ * THE GRANULARITY OF "PARTIAL" IS A WHOLE COMPANY. fetchCompany pages until a
+ * short page, and any HTTP or ArcGIS error mid-paging throws, discarding that
+ * company entirely — there is no half-company state. So `stats.failed` is the
+ * complete account of what went wrong.
+ *
+ * What it CANNOT account for is a company answering HTTP 200 with an empty list:
+ * that counts as a success and is indistinguishable from a company with nothing
+ * in the query window. `stats.received` records how many records each company
+ * actually returned so the gap is VISIBLE rather than inferred — but nothing
+ * anywhere turns a zero into a failure claim. On 2026-08-25 Thames Water
+ * returned 3 records against South West Water's 1050, and 3 is as plausible a
+ * true answer as 0 would be.
  *
  * Membership is HYDROLOGICAL. The companies' services can only be queried with a
  * rectangle, so the catchment boundary's envelope is used as the query window
@@ -156,8 +173,12 @@ export async function loadLiveOverflows({ base = '/', signal } = {}) {
 
   const features = [];
   const counts = { 1: 0, 0: 0, '-1': 0 };
+  // Raw records returned per company, BEFORE the catchment test — see the note
+  // on the empty-200 gap in the header. Recorded, never interpreted.
+  const received = {};
   let outside = 0;
   for (const { company, features: raw } of ok) {
+    received[company] = raw.length;
     for (const f of raw) {
       if (!f.geometry?.coordinates?.length) continue;
       const p = f.properties ?? {};
@@ -204,8 +225,47 @@ export async function loadLiveOverflows({ base = '/', signal } = {}) {
       offline: counts['-1'],
       companies: ok.map((r) => r.company),
       failed: failures.map((f) => f.company),
+      received,
       outsideCatchment: outside,
       fetchedAt: Date.now(),
     },
   };
 }
+
+/**
+ * The ONE rendering of `fetchedAt` as a time of day.
+ *
+ * Two surfaces quote this moment — the floating live-status control and the site
+ * briefing's snapshot note — and the requirement is that they can never disagree
+ * about it. They read the same `stats` object out of the same controller, so the
+ * only remaining way to disagree was to format it differently. This is why both
+ * call this instead.
+ *
+ * Returns null when there is no timestamp, so a caller has to decide what to say
+ * about that rather than being handed a plausible-looking blank.
+ */
+export function snapshotTime(stats) {
+  const at = stats?.fetchedAt;
+  if (!at) return null;
+  return new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Which company feeds this snapshot actually rests on, as a sentence — or null
+ * when all four answered and there is nothing to disclose.
+ *
+ * Names the companies rather than counting them: "Wessex Water did not respond"
+ * is checkable against the hub, "3 of 4 feeds" is not.
+ */
+export function partialNote(stats) {
+  const failed = stats?.failed ?? [];
+  if (!failed.length) return null;
+  const list = failed.length === 1
+    ? failed[0]
+    : `${failed.slice(0, -1).join(', ')} and ${failed[failed.length - 1]}`;
+  return `${list} did not respond, so this snapshot is partial.`;
+}
+
+/** The four company names, in query order — so a caller can say "all four" and
+ *  mean the same four this module queries. */
+export const COMPANY_NAMES = COMPANIES.map((c) => c.name);
