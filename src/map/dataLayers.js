@@ -70,6 +70,16 @@ export function applyDataLayers(map, layers, { isSuppressed } = {}) {
       registry.push({ layer, queryId: q.id, sourceId: q.source, sourceLayer: q.sourceLayer, priority: q.priority ?? 0 });
     const ctx = { card, clearHover, addQueryLayer };
     const entry = defer ? deferLayer(map, layer, beforeId, ctx, add) : add(map, layer, beforeId, ctx);
+    /*
+     * A layer that was never deferred is in the style from the moment it is
+     * added, so it is loaded already and load() has nothing to do. Only the
+     * kinds that defer themselves define these — marine species does, because
+     * it fetches per species and "loaded" there means something of its own.
+     */
+    if (!entry.controller.isLoaded) {
+      entry.controller.isLoaded = () => true;
+      entry.controller.load = () => Promise.resolve();
+    }
     controllers.set(layer.id, entry.controller);
     // A layer may expose several hit-test layers (polygons, markers, water lines…),
     // each with a hover priority so the most specific feature wins regardless of
@@ -243,8 +253,20 @@ function deferLayer(map, layer, beforeId, ctx, add) {
       // overflow feed queries several APIs) before anything is added to the map.
       const extra = layer.prepare ? await layer.prepare() : null;
       prepared = extra;
-      // defaultVisible true: we are building precisely because it was asked for.
-      real = add(map, { ...layer, ...extra, defaultVisible: true, defaultSpecies: species }, anchorId, ctx);
+      /*
+       * BUILT AT THE VISIBILITY THAT IS ACTUALLY WANTED, which is not always
+       * "visible": `load()` builds a layer for the site briefing to read
+       * without drawing it, and a layer switched off again while its data was
+       * in flight wants to arrive hidden too.
+       *
+       * Passing `want` rather than hardcoding true is what keeps that free of a
+       * flash. Every adder honours defaultVisible: false by adding the layer
+       * with visibility 'none' and zero opacity, so it never paints. Building
+       * visible and hiding afterwards would instead fade a full-opacity layer
+       * out over FADE_MS — eighteen of those at once, when the briefing loads
+       * everything, is exactly the wash this avoids.
+       */
+      real = add(map, { ...layer, ...extra, defaultVisible: want, defaultSpecies: species }, anchorId, ctx);
       resolveQuery(real.queryLayers ?? []);
       // A pair partner may already have been on while this layer was still
       // deferred, so the coexistence state has to be replayed onto the real
@@ -252,8 +274,8 @@ function deferLayer(map, layer, beforeId, ctx, add) {
       // not yet have anything to paint.
       real.controller.setPaired?.(paired);
       if (layer.pressures) real.controller.setWeights?.(pendingWeights);
-      // Switched off again while the data was in flight — respect that.
-      if (!want) real.controller.hide();
+      // No hide() here: `want` was read above, so a layer switched off mid-flight
+      // — or never switched on, because this was a load() — is already hidden.
       readyCbs.forEach((cb) => cb());
     } catch (err) {
       console.warn(`[${layer.id}] "${layer.label}" unavailable:`, err);
@@ -280,6 +302,29 @@ function deferLayer(map, layer, beforeId, ctx, add) {
       want = false;
       real?.controller.hide();
     },
+    /*
+     * LOAD WITHOUT SHOWING — build the layer so its data exists, and leave
+     * `want` alone so nothing is drawn and no toggle changes.
+     *
+     * This is what the site briefing's "Load their data" runs. A briefing reads
+     * from loaded data; it does not need the layers drawn, and switching twenty
+     * on would bury the map under a wash of overlapping fills. Loading is not a
+     * viewing decision, so it does not make one.
+     *
+     * Resolves when the layer is ready OR has failed, so a caller can wait for
+     * the whole set and then re-read. A build already in flight is joined
+     * rather than started again.
+     */
+    load: () => {
+      if (real || failed) return Promise.resolve();
+      const settled = new Promise((resolve) => { readyCbs.push(resolve); failCbs.push(resolve); });
+      build();
+      return settled;
+    },
+    // Whether a reader may read this layer — "is it in the style", as against
+    // isVisible()'s "is it meant to be drawn". The two came apart the moment
+    // loading stopped implying showing.
+    isLoaded: () => Boolean(real),
     onReady: (cb) => (real ? cb() : readyCbs.push(cb)),
     onUnavailable: (cb) => (failed ? cb() : failCbs.push(cb)),
     setPaired: (on) => {
@@ -1353,8 +1398,22 @@ function addMarineMarkersLayer(map, layer, beforeId, { card, clearHover, addQuer
     applyVisibility();
   };
 
+  /*
+   * "LOADED" FOR A LAYER THAT FETCHES PER SPECIES.
+   *
+   * There is no download to start here: a species file is fetched the first
+   * time its box is ticked, and the briefing's reader fetches all eighteen
+   * itself and never touches this layer. So load() grants the reader permission
+   * rather than pretending to download something, and that is the honest shape
+   * — inventing a fetch to look like the other layers would download eighteen
+   * files nobody asked to see.
+   */
+  let briefingLoaded = false;
+
   const controller = {
     isVisible: () => master,
+    load: () => { briefingLoaded = true; return Promise.resolve(); },
+    isLoaded: () => briefingLoaded || master,
     show: () => { master = true; applyVisibility(); },
     hide: () => { master = false; applyVisibility(); clearHover(); card.hide(); },
     toggle: () => (master ? controller.hide() : controller.show()),

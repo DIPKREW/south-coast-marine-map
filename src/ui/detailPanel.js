@@ -132,6 +132,10 @@ export function buildDetailPanel({ layers, groups, controllers, onStateChange, b
    * for the main panel's state.
    */
   const sync = ({ collapsed }) => {
+    // A toggle, a preset or the load button can all change what a briefing is
+    // able to report. This is the one place that notices; it re-reads only when
+    // the set of loaded layers actually moved.
+    briefingApi?.syncLoaded();
     let any = false;
     for (const s of sections) {
       const on = s.isOn();
@@ -194,14 +198,30 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
   const loadNote = el('p', 'briefing__loadnote');
   const actions = el('div', 'briefing__actions');
   const loadBtn = el('button', 'briefing__loadbtn', { type: 'button' });
-  loadBtn.textContent = 'Load them';
+  const LOAD_LABEL = 'Load their data';
+  loadBtn.textContent = LOAD_LABEL;
   /*
-   * Layers are NOT auto-loaded. Switching a dozen layers on behind someone's
-   * back would download several megabytes they did not ask for and change the
-   * map under them. The briefing says which are missing and offers the button.
+   * Layers are NOT auto-loaded. Fetching a dozen layers behind someone's back
+   * would download several megabytes they did not ask for. The briefing says
+   * which are missing and offers the button.
+   *
+   * IT LOADS; IT DOES NOT SWITCH ANYTHING ON. Twenty layers drawn at once —
+   * four flood extents, seabed, recreational and compound pressure — stack into
+   * one purple wash and the map stops meaning anything. A briefing reads from
+   * loaded data and does not need the layers drawn, so the toggles are left in
+   * whatever state their owner set them: loading is not a viewing decision.
+   *
+   * Then it RE-READS. Nothing else does: the readers ran once when the pin was
+   * dropped, and without this the rows would sit at "not loaded" over data that
+   * had just arrived.
    */
-  loadBtn.addEventListener('click', () => {
-    for (const id of order) controllers.get(id)?.show?.();
+  loadBtn.addEventListener('click', async () => {
+    loadBtn.disabled = true;
+    loadBtn.textContent = 'Loading…';
+    await Promise.all(order.map((id) => controllers.get(id)?.load?.() ?? Promise.resolve()));
+    loadBtn.textContent = LOAD_LABEL;
+    loadBtn.disabled = false;
+    refresh();
   });
   const copyBtn = el('button', 'briefing__loadbtn', { type: 'button' });
   copyBtn.textContent = 'Copy as text';
@@ -335,11 +355,68 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
     // whether there are notes to read.
   };
 
+  /*
+   * WHETHER A READER MAY READ, which is no longer the same question as whether
+   * the layer is drawn.
+   *
+   * It used to be `isVisible()`, because loading and showing were the same act.
+   * They are not any more: "Load their data" fetches without drawing, so the
+   * gate is `isLoaded()`. One consequence is deliberate — a layer switched on
+   * and then off again stays loaded and keeps reporting. The data is there and
+   * the reader can read it, and the alternative (remembering how each layer
+   * came to be loaded) would let two identically loaded layers give different
+   * answers.
+   */
+  const layerLoaded = (id) => {
+    if (READERS[id]?.needsLayer === false) return true;
+    return Boolean(controllers.get(id)?.isLoaded?.());
+  };
+  /** As above, but for a ROW — which may stand for several layers (the four sea
+   *  flood extents) or for none (a placeholder with nothing to fetch). */
+  const rowLoaded = (rowId) => {
+    const g = rows.get(rowId)?.group;
+    if (g) return g.members.some((m) => controllers.get(m)?.isLoaded?.());
+    return layerLoaded(rowId);
+  };
+
   /** One token per pin, so a slow read from an abandoned pin cannot paint over
    *  the current one. */
   let token = 0;
 
-  const update = (info) => {
+  /*
+   * The last info `update` was given, so a re-read can repaint without it being
+   * passed again. Held rather than defaulted: the place name arrives from an
+   * async lookup after the first paint, and a re-read that dropped it would
+   * blank the line that names where the pin is.
+   */
+  let lastInfo = {};
+
+  /** Re-read every layer at the current pin with the info already in hand. */
+  const refresh = () => paint(lastInfo);
+
+  /*
+   * Re-read when the SET OF LOADED LAYERS changes, and only then.
+   *
+   * A toggle, a preset or the load button can all change what a briefing is
+   * able to report, and until now none of them re-read it — the rows sat at
+   * whatever they said when the pin was dropped. Comparing a signature rather
+   * than re-reading on every sync keeps that from running seventeen readers
+   * again each time an unrelated panel state changes.
+   */
+  let loadedSig = null;
+  const loadedSignature = () => order.map((id) => (layerLoaded(id) ? '1' : '0')).join('');
+  const syncLoaded = () => {
+    const sig = loadedSignature();
+    if (sig === loadedSig) return;
+    loadedSig = sig;
+    if (briefing.getPin()) refresh();
+  };
+
+  const update = (info) => paint(info ?? {});
+
+  const paint = (info) => {
+    lastInfo = info;
+    loadedSig = loadedSignature();
     const pin = briefing.getPin();
     if (!pin) return;
     const mine = ++token;
@@ -351,29 +428,21 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
     /* A row may stand for several layers, and a placeholder stands for none —
      * it has nothing to fetch, so "not loaded" would be meaningless for it. */
     const readerFor = (id) => rows.get(id)?.group ?? READERS[id];
-    const isOn = (id) => {
-      const g = rows.get(id)?.group;
-      if (g) return g.members.some((m) => controllers.get(m)?.isVisible?.());
-      if (READERS[id]?.needsLayer === false) return true;
-      return Boolean(controllers.get(id)?.isVisible?.());
-    };
 
-    const off = order.filter((id) => {
-      if (READERS[id]?.needsLayer === false) return false;
-      return !controllers.get(id)?.isVisible?.();
-    });
+    const off = order.filter((id) => !layerLoaded(id));
     loadNote.textContent = off.length
-      ? `${off.length} of ${order.length} layers are not loaded. A briefing reads from loaded data, so those cannot be reported on yet.`
+      ? `${off.length} of ${order.length} layers are not loaded. A briefing reads from loaded data, so those cannot be`
+        + ' reported on yet. Loading fetches their data; it does not switch the layers on.'
       : 'Every layer is loaded.';
     loadBtn.hidden = off.length === 0;
 
     const results = new Map();
     const pending = [];
     for (const [id, r] of rows) {
-      r.li.classList.toggle('is-off', !isOn(id));
+      r.li.classList.toggle('is-off', !rowLoaded(id));
       const reader = readerFor(id);
       let result;
-      if (!isOn(id)) result = { status: 'not-loaded', items: [] };
+      if (!rowLoaded(id)) result = { status: 'not-loaded', items: [] };
       else if (!reader) result = { status: 'pending', items: [] };
       else {
         result = { status: 'reading', summary: 'reading…', items: [] };
@@ -463,8 +532,16 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
   return {
     el: root,
     update,
+    syncLoaded,
     asText,
-    clear: () => { loadBtn.hidden = true; snapshot = null; notes.hidden = true; notes.open = false; },
+    clear: () => {
+      loadBtn.hidden = true;
+      snapshot = null;
+      notes.hidden = true;
+      notes.open = false;
+      lastInfo = {};
+      loadedSig = null;
+    },
   };
 }
 
