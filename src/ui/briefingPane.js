@@ -82,7 +82,31 @@ export function buildBriefingPane({ order, byId, controllers, briefing, base, cu
   actions.append(loadBtn, copyBtn);
   body.append(loadNote, actions);
 
+  /*
+   * THREE HOMES FOR A ROW, decided per pin by what the reader came back with.
+   *
+   * Seventeen rows with sub-lists is a wall of text, and a layer with nothing to
+   * say was taking the same visual weight as one with 22 overflows and 198
+   * spills. So the layers that have something to say at this point come first,
+   * and the rest collapse — but they collapse into TWO disclosures, not one,
+   * because they are not the same kind of absence:
+   *
+   *   silent    — the reader ran and found nothing to report. Three distinct
+   *               kinds, kept apart under their own subheadings; see below.
+   *   unloaded  — nobody has asked for this layer's data yet. Not silent: no
+   *               reader has run, so nothing is known about this point at all.
+   *               Folding it in with the silences would claim an answer that
+   *               was never sought.
+   *
+   * A reader that FAILED, or a layer with no reader, goes in neither: it stays
+   * in the main list where it cannot be missed. Hiding a failure inside a
+   * disclosure would be the false claim this whole arrangement exists to avoid.
+   */
   const list = el('ul', 'briefing__list');
+
+  const silent = buildRollup('silent');
+  const unloaded = buildRollup('unloaded');
+
   const rows = new Map();
   /* A grouped reader takes the place of its FIRST member in panel order and
    * swallows the others, so the four sea flood extents occupy one row where
@@ -170,7 +194,21 @@ export function buildBriefingPane({ order, byId, controllers, briefing, base, cu
     }
   };
 
-  body.append(list, notes);
+  /*
+   * THE THREE KINDS OF SILENCE, in the order they are worth reading: nothing at
+   * this point, then not covered, then no data at all — narrowing from "we
+   * looked here and found none" to "we cannot look here" to "there is nothing
+   * to look at anywhere". Each row keeps its own full summary inside, because
+   * that sentence is what actually tells them apart; the headings only name the
+   * kind.
+   */
+  const SILENCES = [
+    ['nothing-here', 'Nothing at this point'],
+    ['not-covered', 'Not covered here'],
+    ['no-data', 'No data anywhere in the corridor'],
+  ];
+
+  body.append(unloaded.el, list, silent.el, notes);
 
   /* Last rendered state, kept so "Copy as text" reproduces exactly what is on
    * screen rather than re-deriving it and risking a different answer. */
@@ -233,6 +271,37 @@ export function buildBriefingPane({ order, byId, controllers, briefing, base, cu
     return layerLoaded(rowId);
   };
 
+  /**
+   * Put every row where its result says it belongs, and label the two rollups.
+   *
+   * Run ONCE, when every reader has settled, rather than as each one lands: a
+   * row that moved the moment its own read finished would make the pane jump
+   * seventeen times while it filled in. Until then everything sits in the main
+   * list showing "reading…", which is what it did before any of this.
+   */
+  const reflow = (results) => {
+    const bySilence = new Map(SILENCES.map(([k]) => [k, []]));
+    const unasked = [];
+    const loud = [];
+    for (const [id, r] of rows) {
+      const status = results.get(id)?.status;
+      if (bySilence.has(status)) bySilence.get(status).push(r.li);
+      else if (status === 'not-loaded') unasked.push(r.li);
+      else loud.push(r.li); // reports, unavailable, pending — none of them hide
+    }
+    list.replaceChildren(...loud);
+
+    const silentTotal = [...bySilence.values()].reduce((t, v) => t + v.length, 0);
+    silent.fill(
+      `${silentTotal} ${silentTotal === 1 ? 'layer is' : 'layers are'} silent here`,
+      SILENCES.map(([key, heading]) => [heading, bySilence.get(key)]),
+    );
+    unloaded.fill(
+      `${unasked.length} ${unasked.length === 1 ? 'layer is' : 'layers are'} not loaded`,
+      [[null, unasked]],
+    );
+  };
+
   /** One token per pin, so a slow read from an abandoned pin cannot paint over
    *  the current one. */
   let token = 0;
@@ -258,17 +327,33 @@ export function buildBriefingPane({ order, byId, controllers, briefing, base, cu
    * again each time an unrelated panel state changes.
    */
   let loadedSig = null;
+  let refreshTimer = null;
   const loadedSignature = () => order.map((id) => (layerLoaded(id) ? '1' : '0')).join('');
+  /*
+   * DEBOUNCED, because layers arrive one at a time. Every layer's onReady runs
+   * the panel's onChange, so loading seventeen of them lands seventeen separate
+   * signature changes — and re-reading on each would run seventeen readers
+   * seventeen times to paint the last one. A preset switching three layers on
+   * does the same thing on a smaller scale. One short wait collapses each burst
+   * into a single read.
+   */
+  const scheduleRefresh = () => {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => { refreshTimer = null; refresh(); }, 150);
+  };
   const syncLoaded = () => {
     const sig = loadedSignature();
     if (sig === loadedSig) return;
     loadedSig = sig;
-    if (briefing.getPin()) refresh();
+    if (briefing.getPin()) scheduleRefresh();
   };
 
   const update = (info) => paint(info ?? {});
 
   const paint = (info) => {
+    // Whatever this paint is for, it supersedes any burst still waiting.
+    clearTimeout(refreshTimer);
+    refreshTimer = null;
     lastInfo = info;
     loadedSig = loadedSignature();
     const pin = briefing.getPin();
@@ -315,12 +400,16 @@ export function buildBriefingPane({ order, byId, controllers, briefing, base, cu
     }
     snapshot = { coords, place: info?.place ?? null, results };
     renderNotes(results);
+    // Places the rows that are already decided — everything not loaded — so a
+    // briefing with nothing loaded is not a list of seventeen "not loaded"s.
+    reflow(results);
     Promise.all(pending).then(() => {
       if (mine !== token) return;
       snapshot = { coords, place: info?.place ?? null, results };
       // Re-run once the async readers have landed: a caveat belongs to a layer
       // that reported, and until they resolve we do not know which those are.
       renderNotes(results);
+      reflow(results);
     });
   };
 
@@ -410,9 +499,56 @@ export function buildBriefingPane({ order, byId, controllers, briefing, base, cu
       snapshot = null;
       notes.hidden = true;
       notes.open = false;
+      silent.reset();
+      unloaded.reset();
       lastInfo = {};
       loadedSig = null;
     },
   };
 }
 
+
+/**
+ * A COLLAPSED ROLL-UP of rows that would otherwise be noise, counted in its own
+ * summary so "collapsed" can never read as "absent" — the same shape, and the
+ * same reasoning, as the caveat disclosure above it.
+ *
+ * `fill` takes the summary line and a list of [heading, rows] buckets. A bucket
+ * with no rows contributes no heading, and a roll-up with no rows at all hides
+ * itself rather than sitting there announcing zero.
+ *
+ * It takes the row elements THEMSELVES rather than copies of their text, so the
+ * rows keep their identity across pins and there is exactly one DOM node per
+ * layer to keep in step.
+ */
+function buildRollup(kind) {
+  const root = el('details', `briefing__rollup briefing__rollup--${kind}`);
+  const summary = el('summary', 'briefing__rollup-summary');
+  const listEl = el('ul', 'briefing__rollup-list');
+  root.append(summary, listEl);
+  root.hidden = true;
+
+  return {
+    el: root,
+    fill: (label, buckets) => {
+      const total = buckets.reduce((t, [, items]) => t + items.length, 0);
+      root.hidden = total === 0;
+      // Set before the empty check, so a hidden roll-up never keeps a count from
+      // the last pin to show for an instant if it is opened again.
+      summary.textContent = label;
+      if (!total) { listEl.replaceChildren(); return; }
+      const out = [];
+      for (const [heading, items] of buckets) {
+        if (!items.length) continue;
+        if (heading) {
+          const h = el('li', 'briefing__rollup-head');
+          h.textContent = heading;
+          out.push(h);
+        }
+        out.push(...items);
+      }
+      listEl.replaceChildren(...out);
+    },
+    reset: () => { root.hidden = true; root.open = false; listEl.replaceChildren(); },
+  };
+}

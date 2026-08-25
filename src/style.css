@@ -812,6 +812,74 @@ body.is-ready .maplibregl-map {
 }
 
 
+/*
+ * ROLL-UPS — the silent layers, and the ones nobody has loaded. Same visual
+ * weight and same mechanism as the caveat disclosure, because they are the same
+ * kind of thing: something real, folded away, with its count on the label so
+ * that folding it away cannot read as dropping it.
+ */
+.briefing__rollup {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+}
+.briefing__rollup[hidden] {
+  display: none;
+}
+
+.briefing__rollup-summary {
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  list-style: none;
+}
+.briefing__rollup-summary::-webkit-details-marker {
+  display: none;
+}
+.briefing__rollup-summary::before {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-right: 7px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  transform: rotate(-90deg);
+  transition: transform 160ms ease;
+}
+.briefing__rollup[open] > .briefing__rollup-summary::before {
+  transform: rotate(0deg);
+}
+.briefing__rollup-summary:hover {
+  color: var(--ink);
+}
+.briefing__rollup-summary:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+
+.briefing__rollup-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Names which of the three silences the rows beneath it are. */
+.briefing__rollup-head {
+  margin: 12px 0 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.briefing__rollup-head:first-child {
+  margin-top: 0;
+}
+
+
 /* ---- Live status control (under the control panel) ------------------- */
 
 /*
