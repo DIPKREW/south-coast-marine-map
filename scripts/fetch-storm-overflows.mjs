@@ -75,9 +75,23 @@ async function latestYear() {
   return { latest: years[years.length - 1], all: years };
 }
 
+// SITE NAMES ARE TRUNCATED AT SOURCE, AND THAT IS LEFT ALONE. The EA consents
+// database stores this field at 35 characters, so 77 of the 1,903 names here sit
+// exactly on that limit and a good many are cut mid-word — "Cambridge Lane
+// Combined Sewer Of", "Fullerton Wastewater Treatment Work", "Black Rock
+// Wastewater Pumping Statn". These are not corrupt: they are what EA published,
+// and the truncation is in the register itself.
+//
+// DO NOT "repair" them. Completing a name means guessing which real asset it
+// refers to, and a guessed name on a regulatory record is worse than a clipped
+// one — it invents provenance the source does not have. Same rule as the two
+// casings of "Sheet piles"/"Sheet Piles" carried through from NCERM: where the
+// source disagrees with itself or cuts itself short, this repo passes it on
+// unchanged rather than tidying it into something nobody published.
+//
 // Titlecase the SHOUTED site names from the EA consents database, keeping the
 // sector's acronyms (WWTW = wastewater treatment works, CSO = combined sewer
-// overflow, STW, SPS, PS…) upper case.
+// overflow, STW, SPS, PS…) upper case. This changes case only, never length.
 const KEEP_UPPER = new Set(['WWTW', 'WTW', 'STW', 'CSO', 'SPS', 'PS', 'SO', 'EO', 'WPS', 'WRC', 'UV', 'A', 'B', 'C', 'I', 'II', 'III']);
 const titleCase = (s) =>
   String(s)
