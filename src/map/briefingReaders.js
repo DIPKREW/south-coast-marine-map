@@ -1041,6 +1041,78 @@ const marineSpecies = {
   },
 };
 
+/**
+ * SEA FLOOD RISK — four extents, ONE row.
+ *
+ * Four separate lines would say nearly the same thing four times and bury the
+ * only comparison that matters, which is defended against undefended at the
+ * same return period. So the four layers collapse into a single row: the
+ * summary counts how many contain the pin, and one line per return period puts
+ * the pair side by side.
+ *
+ * The source and scenario are stated ONCE, at the foot of the block.
+ *
+ * THEY DO NOT NEST, and the format must not assume they do. Sweeping the
+ * corridor at 0.01° turns up 14 distinct combinations of the four, including 7
+ * cells inside the DEFENDED 1-in-200 extent but outside the undefended one. A
+ * format that printed "inside the 1-in-200 extent" without saying which would
+ * be wrong in both directions.
+ *
+ * Only the loaded extents can be reported on, and the block says which of the
+ * four are missing rather than quietly reporting three as if they were four.
+ */
+const FLOOD_MEMBERS = [
+  { id: 'sea-flood-200u', rp: 200, defended: false },
+  { id: 'sea-flood-200d', rp: 200, defended: true },
+  { id: 'sea-flood-1000u', rp: 1000, defended: false },
+  { id: 'sea-flood-1000d', rp: 1000, defended: true },
+];
+
+const seaFlood = {
+  id: 'sea-flood',
+  label: 'Sea flood risk',
+  members: FLOOD_MEMBERS.map((m) => m.id),
+  async read(pin, { base, controllers }) {
+    const state = await Promise.all(FLOOD_MEMBERS.map(async (m) => {
+      if (!controllers?.get(m.id)?.isVisible?.()) return { ...m, loaded: false };
+      const fc = await loadJson(`${base}data/${m.id.replace('sea-flood-', 'sea-flood-')}.geojson`);
+      return { ...m, loaded: true, inside: fc.features.some((f) => containsPoint(f.geometry, pin)) };
+    }));
+    const loaded = state.filter((s) => s.loaded);
+    const missing = state.filter((s) => !s.loaded);
+    const inside = loaded.filter((s) => s.inside);
+
+    const pair = (rp) => {
+      const u = state.find((s) => s.rp === rp && !s.defended);
+      const d = state.find((s) => s.rp === rp && s.defended);
+      const say = (s) => (!s.loaded ? 'not loaded' : s.inside ? 'inside' : 'outside');
+      return `1 in ${rp} — undefended: ${say(u)} · defended: ${say(d)}`;
+    };
+    const scenario = 'EA NaFRA2, December 2024 · UKCP18 RCP 8.5 upper end, to 2125';
+
+    // "2 of the 2 modelled extents loaded here" is a mouthful for the ordinary
+    // case, where all four are on. Say "of the 4" then, and only spell out the
+    // loaded subset when it is actually a subset.
+    const whole = missing.length === 0;
+    const of = whole
+      ? `the ${FLOOD_MEMBERS.length} modelled extents`
+      : `the ${n(loaded.length)} extent${loaded.length === 1 ? '' : 's'} that are loaded`;
+    const summary = inside.length
+      ? `inside ${n(inside.length)} of ${of}`
+      : (whole ? `outside all ${FLOOD_MEMBERS.length} modelled extents` : `outside all of ${of}`);
+    return reports(
+      summary,
+      [pair(200), pair(1000)],
+      {
+        note: missing.length
+          ? `${scenario}. ${plural(missing.length, 'extent')} not loaded, so ${missing.length === 1 ? 'it is' : 'they are'} not reported on.`
+          : scenario,
+        caveat: 'A modelled extent of a flood event, not a sea-level line, and not a statement about any individual property.',
+      },
+    );
+  },
+};
+
 /** Readers by layer id. A layer with no reader stays `pending`. */
 export const READERS = Object.fromEntries(
   [
@@ -1052,6 +1124,16 @@ export const READERS = Object.fromEntries(
     seabed, marineSpecies,
   ].map((r) => [r.id, r]),
 );
+
+/** Layers that are inert placeholders with no data anywhere in the corridor.
+ *  Their silence is a third thing again, and it is known without looking. */
+/**
+ * Readers that speak for SEVERAL layers at once, rendered as one row in place
+ * of the first member. Only the sea flood extents qualify: four lines saying
+ * nearly the same thing would bury the defended/undefended comparison that is
+ * the whole reason all four are published.
+ */
+export const READER_GROUPS = [seaFlood];
 
 /** Layers that are inert placeholders with no data anywhere in the corridor.
  *  Their silence is a third thing again, and it is known without looking. */

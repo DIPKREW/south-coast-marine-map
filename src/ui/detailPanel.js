@@ -24,7 +24,7 @@
  * or the main panel collapses/expands.
  */
 import { el } from './dom.js';
-import { READERS, NO_DATA_LAYERS, RADIUS_KM } from '../map/briefingReaders.js';
+import { READERS, READER_GROUPS, NO_DATA_LAYERS, RADIUS_KM } from '../map/briefingReaders.js';
 
 export function buildDetailPanel({ layers, groups, controllers, onStateChange, briefing, base, currentUrl }) {
   const panel = el('aside', 'detail', { 'aria-label': 'Layer details', 'aria-live': 'polite' });
@@ -210,18 +210,31 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
 
   const list = el('ul', 'briefing__list');
   const rows = new Map();
+  /* A grouped reader takes the place of its FIRST member in panel order and
+   * swallows the others, so the four sea flood extents occupy one row where
+   * they occupied four. Order is otherwise untouched. */
+  const groupOf = new Map();
+  for (const g of READER_GROUPS) for (const m of g.members) groupOf.set(m, g);
+  const seen = new Set();
   for (const id of order) {
+    const group = groupOf.get(id);
+    if (group) {
+      if (seen.has(group.id)) continue;
+      seen.add(group.id);
+    }
     const layer = byId.get(id);
-    if (!layer) continue;
+    if (!layer && !group) continue;
+    const rowId = group ? group.id : id;
+    const label = group ? group.label : (layer.detailLabel ?? layer.label);
     const li = el('li', 'briefing__row');
     const name = el('span', 'briefing__row-name');
-    name.textContent = layer.detailLabel ?? layer.label;
+    name.textContent = label;
     const state = el('span', 'briefing__row-state');
     state.textContent = 'pending';
     const detail = el('ul', 'briefing__row-items');
     li.append(name, state, detail);
     list.appendChild(li);
-    rows.set(id, { li, state, detail, label: layer.detailLabel ?? layer.label });
+    rows.set(rowId, { li, state, detail, label, group: group ?? null });
   }
   /**
    * HOW TO READ THESE FIGURES — every reporting layer's caveat, in one place.
@@ -308,24 +321,34 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
     where.textContent = info?.place ? `${coords}\n${info.place}` : coords;
     radius.textContent = `Reporting on everything within ${RADIUS_KM} km of this point.`;
 
+    /* A row may stand for several layers, so "is it on" and "who reads it" both
+     * have to go through the group where there is one. */
+    const readerFor = (id) => rows.get(id)?.group ?? READERS[id];
+    const isOn = (id) => {
+      const g = rows.get(id)?.group;
+      if (g) return g.members.some((m) => controllers.get(m)?.isVisible?.());
+      return Boolean(controllers.get(id)?.isVisible?.());
+    };
+
     const off = order.filter((id) => !controllers.get(id)?.isVisible?.());
     loadNote.textContent = off.length
-      ? `${off.length} of ${rows.size} layers are not loaded. A briefing reads from loaded data, so those cannot be reported on yet.`
+      ? `${off.length} of ${order.length} layers are not loaded. A briefing reads from loaded data, so those cannot be reported on yet.`
       : 'Every layer is loaded.';
     loadBtn.hidden = off.length === 0;
 
     const results = new Map();
     const pending = [];
     for (const [id, r] of rows) {
-      r.li.classList.toggle('is-off', !controllers.get(id)?.isVisible?.());
+      r.li.classList.toggle('is-off', !isOn(id));
+      const reader = readerFor(id);
       let result;
       if (NO_DATA_LAYERS.has(id)) result = { status: 'no-data', items: [] };
-      else if (!controllers.get(id)?.isVisible?.()) result = { status: 'not-loaded', items: [] };
-      else if (!READERS[id]) result = { status: 'pending', items: [] };
+      else if (!isOn(id)) result = { status: 'not-loaded', items: [] };
+      else if (!reader) result = { status: 'pending', items: [] };
       else {
         result = { status: 'reading', summary: 'reading…', items: [] };
         pending.push(
-          READERS[id].read(pin, { base, controllers }).then(
+          reader.read(pin, { base, controllers }).then(
             (out) => { if (mine === token) { results.set(id, out); render(id, out); } },
             (err) => {
               const out = { status: 'unavailable', summary: `could not be read (${err.message})`, items: [] };
