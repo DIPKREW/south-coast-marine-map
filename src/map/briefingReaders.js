@@ -1113,6 +1113,40 @@ const seaFlood = {
   },
 };
 
+/**
+ * THE TWO INERT PLACEHOLDERS. Both are no-data everywhere, and both were
+ * refused after an investigation rather than merely not built yet. The reason is
+ * the useful part — a bare "no data" invites someone to go and add the layer
+ * that was already ruled out.
+ */
+const shellfish = {
+  id: 'shellfish',
+  // Nothing to load: the toggle is inert, so this reports whether or not it is on.
+  needsLayer: false,
+  label: 'Shellfish water quality',
+  async read() {
+    return {
+      status: 'no-data',
+      summary: 'no data anywhere in the corridor',
+      items: ['The current classification list has no zone geometry to join to: the only published boundaries are a 2019 vintage against a list revised monthly, and the join tested at 1.4%.'],
+    };
+  },
+};
+
+const beachLitter = {
+  id: 'beachlitter',
+  // Nothing to load: the toggle is inert, so this reports whether or not it is on.
+  needsLayer: false,
+  label: 'Beach litter',
+  async read() {
+    return {
+      status: 'no-data',
+      summary: 'no data anywhere in the corridor',
+      items: ['MCS Beachwatch is licence-blocked, and the EEA alternative held nine undated points in the corridor with none at all between Portsmouth and Eastbourne.'],
+    };
+  },
+};
+
 /** Readers by layer id. A layer with no reader stays `pending`. */
 export const READERS = Object.fromEntries(
   [
@@ -1121,7 +1155,7 @@ export const READERS = Object.fromEntries(
     // Stage two-B batch one — the eight tractable layers.
     bathing, wfd, stormLive, ncerm, licensing, wrecks, recreational, compound,
     // Stage two-B batch two — completing the readout.
-    seabed, marineSpecies,
+    seabed, marineSpecies, shellfish, beachLitter,
   ].map((r) => [r.id, r]),
 );
 
@@ -1135,6 +1169,3 @@ export const READERS = Object.fromEntries(
  */
 export const READER_GROUPS = [seaFlood];
 
-/** Layers that are inert placeholders with no data anywhere in the corridor.
- *  Their silence is a third thing again, and it is known without looking. */
-export const NO_DATA_LAYERS = new Set(['beachlitter', 'shellfish']);

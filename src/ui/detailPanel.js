@@ -24,7 +24,7 @@
  * or the main panel collapses/expands.
  */
 import { el } from './dom.js';
-import { READERS, READER_GROUPS, NO_DATA_LAYERS, RADIUS_KM } from '../map/briefingReaders.js';
+import { READERS, READER_GROUPS, RADIUS_KM } from '../map/briefingReaders.js';
 
 export function buildDetailPanel({ layers, groups, controllers, onStateChange, briefing, base, currentUrl }) {
   const panel = el('aside', 'detail', { 'aria-label': 'Layer details', 'aria-live': 'polite' });
@@ -321,16 +321,20 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
     where.textContent = info?.place ? `${coords}\n${info.place}` : coords;
     radius.textContent = `Reporting on everything within ${RADIUS_KM} km of this point.`;
 
-    /* A row may stand for several layers, so "is it on" and "who reads it" both
-     * have to go through the group where there is one. */
+    /* A row may stand for several layers, and a placeholder stands for none —
+     * it has nothing to fetch, so "not loaded" would be meaningless for it. */
     const readerFor = (id) => rows.get(id)?.group ?? READERS[id];
     const isOn = (id) => {
       const g = rows.get(id)?.group;
       if (g) return g.members.some((m) => controllers.get(m)?.isVisible?.());
+      if (READERS[id]?.needsLayer === false) return true;
       return Boolean(controllers.get(id)?.isVisible?.());
     };
 
-    const off = order.filter((id) => !controllers.get(id)?.isVisible?.());
+    const off = order.filter((id) => {
+      if (READERS[id]?.needsLayer === false) return false;
+      return !controllers.get(id)?.isVisible?.();
+    });
     loadNote.textContent = off.length
       ? `${off.length} of ${order.length} layers are not loaded. A briefing reads from loaded data, so those cannot be reported on yet.`
       : 'Every layer is loaded.';
@@ -342,8 +346,7 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
       r.li.classList.toggle('is-off', !isOn(id));
       const reader = readerFor(id);
       let result;
-      if (NO_DATA_LAYERS.has(id)) result = { status: 'no-data', items: [] };
-      else if (!isOn(id)) result = { status: 'not-loaded', items: [] };
+      if (!isOn(id)) result = { status: 'not-loaded', items: [] };
       else if (!reader) result = { status: 'pending', items: [] };
       else {
         result = { status: 'reading', summary: 'reading…', items: [] };
