@@ -190,6 +190,26 @@ async function main() {
       // def_type is EMPTY for a large share of frontages. Empty means the field
       // is not populated — NOT that the frontage is undefended. It is carried
       // through as null and the card says so in words.
+      //
+      // AND WHERE IT IS POPULATED, IT IS PASSED ON AS PUBLISHED. def_type
+      // carries "Sheet piles" on 81 frontages and "Sheet Piles" on 21 — the
+      // same defence type, entered two ways. There are compound values too
+      // ("Natural (Vertical Wall - Concrete)"), one frontage each.
+      //
+      // The obvious tidy-up is to fold the casings together. It is declined
+      // here. EA published both spellings, so normalising means deciding which
+      // one is canonical, and that is a judgement the register does not make —
+      // there is nothing in the source saying one is the correct form and the
+      // other a mistake. Picking one would present a decision of ours as if it
+      // were EA's. Only `.trim()` is applied: whitespace is not a spelling.
+      //
+      // Same principle as the truncated site names in
+      // scripts/fetch-storm-overflows.mjs, where the EA consents database cuts
+      // the name field at 35 characters. In both places the source is untidy,
+      // in both places the tidy version would be partly invented, and in both
+      // places this repo passes the untidy original through. Where the source
+      // disagrees with itself or cuts itself short, that is a fact about the
+      // register and it survives the build.
       const def = (p.def_type ?? '').trim();
       if (!def) emptyDef++;
       if (!smp) emptySmp++;
