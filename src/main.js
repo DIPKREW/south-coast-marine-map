@@ -61,6 +61,10 @@ map.on('load', () => {
     onStateChange: bumpUrl,
     briefing,
     base: import.meta.env.BASE_URL,
+    // Recomputed rather than read off the address bar: the URL write is
+    // debounced, so location.href can still be one pin behind when the
+    // briefing is copied. Same accessor the share-link button uses.
+    currentUrl: () => (url ? url.current() : window.location.href),
   });
 
   // Held in a variable rather than closed over directly: a layer whose data is

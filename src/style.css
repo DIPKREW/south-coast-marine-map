@@ -1480,7 +1480,44 @@ body.is-ready .maplibregl-map {
 }
 .briefing__item--more { font-style: italic; opacity: 0.85; }
 
-.briefing__item--caveat { color: var(--ink); opacity: 0.75; margin-top: 3px; }
+/* The caveats, collected under one disclosure rather than one per row. Closed
+   by default; the count in the summary is what stops "closed" reading as
+   "absent". */
+.briefing__notes { margin: 10px 0 0; }
+.briefing__notes[hidden] { display: none; }
+.briefing__notes-summary {
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  text-transform: lowercase;
+  color: var(--ink-muted);
+  padding: 3px 0;
+}
+.briefing__notes-summary::-webkit-details-marker { display: none; }
+.briefing__notes-summary::before {
+  content: '\25B8';
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform 0.15s ease;
+}
+.briefing__notes[open] .briefing__notes-summary::before { transform: rotate(90deg); }
+.briefing__notes-summary:hover { color: var(--accent); }
+.briefing__notes-list {
+  margin: 4px 0 0;
+  padding: 0 0 0 12px;
+  list-style: none;
+  border-left: 2px solid var(--hairline);
+}
+.briefing__note {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-muted);
+  margin-bottom: 4px;
+}
+.briefing__note-layer { color: var(--ink); opacity: 0.8; }
+.briefing__note-layer::after { content: ' — '; }
 
 /* The three silences read differently at a glance, but none of them reads as
    an error — a silent layer is a finding, not a failure. */

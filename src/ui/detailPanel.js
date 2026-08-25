@@ -26,7 +26,7 @@
 import { el } from './dom.js';
 import { READERS, NO_DATA_LAYERS, RADIUS_KM } from '../map/briefingReaders.js';
 
-export function buildDetailPanel({ layers, groups, controllers, onStateChange, briefing, base }) {
+export function buildDetailPanel({ layers, groups, controllers, onStateChange, briefing, base, currentUrl }) {
   const panel = el('aside', 'detail', { 'aria-label': 'Layer details', 'aria-live': 'polite' });
   const body = el('div', 'detail__body');
   panel.appendChild(body);
@@ -120,7 +120,7 @@ export function buildDetailPanel({ layers, groups, controllers, onStateChange, b
    */
   let briefingApi = null;
   if (briefing) {
-    briefingApi = buildBriefingSection({ layers, order, byId, controllers, briefing, base });
+    briefingApi = buildBriefingSection({ layers, order, byId, controllers, briefing, base, currentUrl });
     body.appendChild(briefingApi.el);
     sections.push({ el: briefingApi.el, about: null, isOn: () => briefing.getPin() != null, wasOn: false });
     resetters.push(() => briefingApi.clear());
@@ -176,7 +176,7 @@ export function buildDetailPanel({ layers, groups, controllers, onStateChange, b
  * line each saying so — and that it can tell which of them are currently
  * loaded, because a briefing reads from loaded data.
  */
-function buildBriefingSection({ layers, order, byId, controllers, briefing, base }) {
+function buildBriefingSection({ layers, order, byId, controllers, briefing, base, currentUrl }) {
   const root = el('section', 'detail__section detail__section--briefing', { 'data-briefing': 'true' });
 
   const head = el('header', 'detail__section-head');
@@ -223,7 +223,40 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
     list.appendChild(li);
     rows.set(id, { li, state, detail, label: layer.detailLabel ?? layer.label });
   }
-  root.appendChild(list);
+  /**
+   * HOW TO READ THESE FIGURES — every reporting layer's caveat, in one place.
+   *
+   * Closed by default and rebuilt on every pin, so it never carries a note from
+   * a layer that is no longer reporting. Closed is a display choice only: the
+   * copied text carries all of them in full whatever this is doing.
+   */
+  const notes = el('details', 'briefing__notes');
+  const notesSummary = el('summary', 'briefing__notes-summary');
+  const notesList = el('ul', 'briefing__notes-list');
+  notes.append(notesSummary, notesList);
+  notes.hidden = true;
+
+  const renderNotes = (results) => {
+    const found = [];
+    for (const [id, r] of rows) {
+      const c = results.get(id)?.caveat;
+      if (c) found.push([r.label, c]);
+    }
+    notes.hidden = found.length === 0;
+    notes.open = false;
+    notesSummary.textContent =
+      `${found.length} ${found.length === 1 ? 'note' : 'notes'} on how to read these figures`;
+    notesList.replaceChildren();
+    for (const [label, text] of found) {
+      const li = el('li', 'briefing__note');
+      const who = el('span', 'briefing__note-layer');
+      who.textContent = label;
+      li.append(who, document.createTextNode(text));
+      notesList.appendChild(li);
+    }
+  };
+
+  root.append(list, notes);
 
   /* Last rendered state, kept so "Copy as text" reproduces exactly what is on
    * screen rather than re-deriving it and risking a different answer. */
@@ -256,11 +289,10 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
       li.textContent = result.note;
       r.detail.appendChild(li);
     }
-    if (result.caveat) {
-      const li = el('li', 'briefing__item briefing__item--caveat');
-      li.textContent = result.caveat;
-      r.detail.appendChild(li);
-    }
+    // The caveat does NOT go on the row. With twenty layers reporting, a note
+    // under each one buries the figures it is meant to qualify. They collect
+    // into one disclosure below, counted in its label so nobody has to guess
+    // whether there are notes to read.
   };
 
   /** One token per pin, so a slow read from an abandoned pin cannot paint over
@@ -306,7 +338,14 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
       render(id, result);
     }
     snapshot = { coords, place: info?.place ?? null, results };
-    Promise.all(pending).then(() => { if (mine === token) snapshot = { coords, place: info?.place ?? null, results }; });
+    renderNotes(results);
+    Promise.all(pending).then(() => {
+      if (mine !== token) return;
+      snapshot = { coords, place: info?.place ?? null, results };
+      // Re-run once the async readers have landed: a caveat belongs to a layer
+      // that reported, and until they resolve we do not know which those are.
+      renderNotes(results);
+    });
   };
 
   /**
@@ -319,15 +358,38 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
     if (!snapshot) return '';
     const lines = ['SITE BRIEFING', snapshot.coords];
     if (snapshot.place) lines.push(snapshot.place);
-    lines.push(`Everything within ${RADIUS_KM} km of this point.`, '');
+    lines.push(`Everything within ${RADIUS_KM} km of this point.`);
+
+    /* WHEN, and WHERE TO GO BACK TO. A pasted briefing outlives the tab it came
+     * from: the live discharge layer changes by the hour and the annual return
+     * is replaced each year, so an undated figure eventually becomes a wrong
+     * one. The link carries the pin, so the reader lands on this exact spot
+     * rather than on a map of the whole south coast. */
+    lines.push(`Generated ${new Date().toLocaleString('en-GB', {
+      day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    })}`);
+    const href = currentUrl?.() ?? window.location.href;
+    if (href) lines.push(href);
+    lines.push('');
+
+    const caveats = [];
     for (const [id, r] of rows) {
       const res = snapshot.results.get(id) ?? { status: 'pending' };
       lines.push(`${r.label}: ${res.summary ?? STATUS_TEXT[res.status] ?? res.status}`);
       for (const item of res.items ?? []) lines.push(`    ${item}`);
       if (res.more) lines.push(`    … and ${res.more} more`);
       if (res.note) lines.push(`    ${res.note}`);
-      if (res.caveat) lines.push(`    ${res.caveat}`);
+      if (res.caveat) caveats.push(`${r.label}: ${res.caveat}`);
     }
+
+    /* The caveats go in WHATEVER the disclosure on screen is doing. Collapsing
+     * them is a way of keeping the panel readable; dropping them from a pasted
+     * briefing would be a way of shipping figures without their limits. */
+    if (caveats.length) {
+      lines.push('', 'HOW TO READ THESE FIGURES');
+      for (const c of caveats) lines.push(`    ${c}`);
+    }
+
     lines.push('', 'South Coast Marine Recovery Map. Figures are per layer; no relationship between layers is implied.');
     return lines.join('\n');
   };
@@ -343,7 +405,12 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
     setTimeout(() => { copyBtn.textContent = 'Copy as text'; }, 1800);
   });
 
-  return { el: root, update, asText, clear: () => { loadBtn.hidden = true; snapshot = null; } };
+  return {
+    el: root,
+    update,
+    asText,
+    clear: () => { loadBtn.hidden = true; snapshot = null; notes.hidden = true; notes.open = false; },
+  };
 }
 
 function buildAbout({ body }) {
