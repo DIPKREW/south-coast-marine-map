@@ -1159,8 +1159,6 @@ export const READERS = Object.fromEntries(
   ].map((r) => [r.id, r]),
 );
 
-/** Layers that are inert placeholders with no data anywhere in the corridor.
- *  Their silence is a third thing again, and it is known without looking. */
 /**
  * Readers that speak for SEVERAL layers at once, rendered as one row in place
  * of the first member. Only the sea flood extents qualify: four lines saying
@@ -1169,3 +1167,21 @@ export const READERS = Object.fromEntries(
  */
 export const READER_GROUPS = [seaFlood];
 
+/**
+ * CAVEAT CATEGORIES. With every layer reporting, a busy pin carries fifteen
+ * notes, and fifteen in a flat list is a wall nobody reads. They group under
+ * four headings, and the taxonomy lives here as one table you can read top to
+ * bottom rather than scattered across the readers.
+ *
+ * The three the brief proposed did not quite fit. A designation is not
+ * management, a licence is not work done, an offline monitor is not a quiet
+ * one: those three are not about counting, coverage or modelling but about the
+ * gap between what a register records and what it invites you to conclude. That
+ * earned a heading of its own.
+ */
+export const CAVEAT_GROUPS = [
+  { key: 'counted', label: 'How figures are counted', ids: ['bathing', 'wfd', 'storm-annual'] },
+  { key: 'meaning', label: 'What a record means', ids: ['marine', 'licensing', 'storm-live'] },
+  { key: 'unseen', label: 'What a layer does not see', ids: ['fisheries', 'recreational', 'wrecks', 'water', 'marine-species'] },
+  { key: 'modelled', label: 'Modelled, not measured', ids: ['ncerm', 'seabed', 'sea-flood', 'compound'] },
+];

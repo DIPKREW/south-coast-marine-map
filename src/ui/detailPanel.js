@@ -24,7 +24,7 @@
  * or the main panel collapses/expands.
  */
 import { el } from './dom.js';
-import { READERS, READER_GROUPS, RADIUS_KM } from '../map/briefingReaders.js';
+import { READERS, READER_GROUPS, CAVEAT_GROUPS, RADIUS_KM } from '../map/briefingReaders.js';
 
 export function buildDetailPanel({ layers, groups, controllers, onStateChange, briefing, base, currentUrl }) {
   const panel = el('aside', 'detail', { 'aria-label': 'Layer details', 'aria-live': 'polite' });
@@ -249,23 +249,50 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
   notes.append(notesSummary, notesList);
   notes.hidden = true;
 
-  const renderNotes = (results) => {
-    const found = [];
+  /** The notes that apply at this pin, bucketed by CAVEAT_GROUPS and in that
+   *  order. A layer missing from the taxonomy falls to the end under its own
+   *  heading rather than being dropped — a note that exists must be shown. */
+  const collectNotes = (results) => {
+    const taken = new Set();
+    const out = [];
+    for (const g of CAVEAT_GROUPS) {
+      const items = [];
+      for (const id of g.ids) {
+        const c = results.get(id)?.caveat;
+        if (!c) continue;
+        taken.add(id);
+        items.push([rows.get(id)?.label ?? id, c]);
+      }
+      if (items.length) out.push([g.label, items]);
+    }
+    const orphans = [];
     for (const [id, r] of rows) {
       const c = results.get(id)?.caveat;
-      if (c) found.push([r.label, c]);
+      if (c && !taken.has(id)) orphans.push([r.label, c]);
     }
-    notes.hidden = found.length === 0;
+    if (orphans.length) out.push(['Other notes', orphans]);
+    return out;
+  };
+
+  const renderNotes = (results) => {
+    const groups = collectNotes(results);
+    const total = groups.reduce((t, [, items]) => t + items.length, 0);
+    notes.hidden = total === 0;
     notes.open = false;
     notesSummary.textContent =
-      `${found.length} ${found.length === 1 ? 'note' : 'notes'} on how to read these figures`;
+      `${total} ${total === 1 ? 'note' : 'notes'} on how to read these figures`;
     notesList.replaceChildren();
-    for (const [label, text] of found) {
-      const li = el('li', 'briefing__note');
-      const who = el('span', 'briefing__note-layer');
-      who.textContent = label;
-      li.append(who, document.createTextNode(text));
-      notesList.appendChild(li);
+    for (const [heading, items] of groups) {
+      const head = el('li', 'briefing__note-head');
+      head.textContent = heading;
+      notesList.appendChild(head);
+      for (const [label, text] of items) {
+        const li = el('li', 'briefing__note');
+        const who = el('span', 'briefing__note-layer');
+        who.textContent = label;
+        li.append(who, document.createTextNode(text));
+        notesList.appendChild(li);
+      }
     }
   };
 
@@ -398,22 +425,24 @@ function buildBriefingSection({ layers, order, byId, controllers, briefing, base
     if (href) lines.push(href);
     lines.push('');
 
-    const caveats = [];
     for (const [id, r] of rows) {
       const res = snapshot.results.get(id) ?? { status: 'pending' };
       lines.push(`${r.label}: ${res.summary ?? STATUS_TEXT[res.status] ?? res.status}`);
       for (const item of res.items ?? []) lines.push(`    ${item}`);
       if (res.more) lines.push(`    … and ${res.more} more`);
       if (res.note) lines.push(`    ${res.note}`);
-      if (res.caveat) caveats.push(`${r.label}: ${res.caveat}`);
     }
+    const caveats = collectNotes(snapshot.results);
 
     /* The caveats go in WHATEVER the disclosure on screen is doing. Collapsing
      * them is a way of keeping the panel readable; dropping them from a pasted
      * briefing would be a way of shipping figures without their limits. */
     if (caveats.length) {
       lines.push('', 'HOW TO READ THESE FIGURES');
-      for (const c of caveats) lines.push(`    ${c}`);
+      for (const [heading, items] of caveats) {
+        lines.push('', `  ${heading}`);
+        for (const [label, text] of items) lines.push(`    ${label}: ${text}`);
+      }
     }
 
     lines.push('', 'South Coast Marine Recovery Map. Figures are per layer; no relationship between layers is implied.');

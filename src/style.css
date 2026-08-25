@@ -1518,6 +1518,18 @@ body.is-ready .maplibregl-map {
 }
 .briefing__note-layer { color: var(--ink); opacity: 0.8; }
 .briefing__note-layer::after { content: ' — '; }
+/* The category headings inside the notes disclosure. Fifteen notes flat is a
+   wall; four headings make it scannable. */
+.briefing__note-head {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  opacity: 0.75;
+  margin: 9px 0 3px;
+}
+.briefing__note-head:first-child { margin-top: 0; }
 
 /* The three silences read differently at a glance, but none of them reads as
    an error — a silent layer is a finding, not a failure. */
