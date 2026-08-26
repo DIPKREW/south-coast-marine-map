@@ -62,7 +62,7 @@ const DORSET_LAND_ATTRIBUTION = [
 ];
 
 /*
- * THE OGL STATEMENT, MOVED OUT FROM BEHIND A DORMANT FLAG.
+ * THE OGL STATEMENT, AND WHY IT IS ONE LINE RATHER THAN ELEVEN TAGS.
  *
  * This is the wording the Open Government Licence itself specifies where the
  * Information Provider has not given its own, and it is reproduced VERBATIM —
@@ -73,6 +73,15 @@ const DORSET_LAND_ATTRIBUTION = [
  * It used to live in DORSET_LAND_ATTRIBUTION, behind SHOW_DORSET_LAND_LAYERS,
  * which is false — so the one statement OGL actually asks for rendered nowhere
  * while eleven layers relied on the licence. It is unconditional now.
+ *
+ * The per-line ", OGL" tags it replaces are GONE, deliberately. Each of those
+ * asserted that one named dataset was OGL, and for four of them — the marine
+ * designations, coastal erosion, the EDM/WFD pair and marine licensing — the
+ * only thing in this repo saying so was that tag itself. docs/licence-audit.md
+ * records which datasets have an independent basis (a build script header) and
+ * which had only the attribution bar quoting itself back. A "contains" statement
+ * is both what the licence asks for and the claim the evidence supports; a
+ * per-dataset licence tag is neither.
  */
 const OGL_STATEMENT =
   'Contains public sector information licensed under the ' +
@@ -83,15 +92,15 @@ const ATTRIBUTION = [
   '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
   ...(SHOW_DORSET_LAND_LAYERS ? DORSET_LAND_ATTRIBUTION : []),
   OGL_STATEMENT,
-  'Marine data © <a href="https://naturalengland-defra.opendata.arcgis.com" target="_blank" rel="noopener">Natural England</a> / JNCC, OGL',
-  'Coastal erosion © <a href="https://www.gov.uk/government/organisations/environment-agency" target="_blank" rel="noopener">Environment Agency</a>, OGL',
-  'Storm overflow annual returns (EDM) &amp; WFD water body status © <a href="https://environment.data.gov.uk" target="_blank" rel="noopener">Environment Agency</a>, OGL',
+  'Marine data © <a href="https://naturalengland-defra.opendata.arcgis.com" target="_blank" rel="noopener">Natural England</a> / JNCC',
+  'Coastal erosion © <a href="https://www.gov.uk/government/organisations/environment-agency" target="_blank" rel="noopener">Environment Agency</a>',
+  'Storm overflow annual returns (EDM) &amp; WFD water body status © <a href="https://environment.data.gov.uk" target="_blank" rel="noopener">Environment Agency</a>',
   // Two active layers that carried no credit of their own at all until now. The
   // bar named the Environment Agency three times and neither of these was one
   // of them, so a strict reading had 193 bathing waters and four flood extents
   // — about 4.5 MB of committed data — uncredited.
-  'Bathing waters © <a href="https://environment.data.gov.uk" target="_blank" rel="noopener">Environment Agency</a>, OGL',
-  'Sea flood risk (NaFRA2, December 2024) © <a href="https://environment.data.gov.uk" target="_blank" rel="noopener">Environment Agency</a>, OGL',
+  'Bathing waters © <a href="https://environment.data.gov.uk" target="_blank" rel="noopener">Environment Agency</a>',
+  'Sea flood risk (NaFRA2, December 2024) © <a href="https://environment.data.gov.uk" target="_blank" rel="noopener">Environment Agency</a>',
   'Live discharge status © the water companies via <a href="https://www.streamwaterdata.co.uk" target="_blank" rel="noopener">Stream</a> / <a href="https://www.water.org.uk" target="_blank" rel="noopener">Water UK</a>',
   'Seabed habitats: UKSeaMap © <a href="https://jncc.gov.uk" target="_blank" rel="noopener">JNCC</a> via <a href="https://emodnet.ec.europa.eu/en/seabed-habitats" target="_blank" rel="noopener">EMODnet Seabed Habitats</a>',
   // NBN is credited unconditionally: the MARINE species layer uses it and is not
@@ -113,13 +122,13 @@ const ATTRIBUTION = [
    * The year is 2025, from the boundary's own name (Countries December 2025).
    */
   'Source: <a href="https://geoportal.statistics.gov.uk" target="_blank" rel="noopener">Office for National Statistics</a> licensed under the Open Government Licence v.3.0 · Contains OS data © Crown copyright and database right 2025',
-  'Vessel density (2015 AIS) © <a href="https://www.gov.uk/government/organisations/marine-management-organisation" target="_blank" rel="noopener">MMO</a> &amp; MCA, OGL — © British Crown copyright',
-  'Marine licensing &amp; disposal grounds © <a href="https://www.gov.uk/government/organisations/marine-management-organisation" target="_blank" rel="noopener">MMO</a> / <a href="https://www.cefas.co.uk" target="_blank" rel="noopener">Cefas</a>, OGL',
+  'Vessel density (2015 AIS) © <a href="https://www.gov.uk/government/organisations/marine-management-organisation" target="_blank" rel="noopener">MMO</a> &amp; MCA — © British Crown copyright',
+  'Marine licensing &amp; disposal grounds © <a href="https://www.gov.uk/government/organisations/marine-management-organisation" target="_blank" rel="noopener">MMO</a> / <a href="https://www.cefas.co.uk" target="_blank" rel="noopener">Cefas</a>',
   // The source's own required credit line for the VMS heatmap, which carries
   // more contributors than the MMO alone.
-  'Fishing activity (VMS 2019–2022) © <a href="https://www.gov.uk/government/organisations/marine-management-organisation" target="_blank" rel="noopener">MMO</a>, DTU Aqua, JNCC, Natural England &amp; UKHO, OGL — © British Crown copyright',
-  'Wrecks © <a href="https://datahub.admiralty.co.uk" target="_blank" rel="noopener">UK Hydrographic Office</a>, OGL — not for navigation',
-  'Protected wreck sites © <a href="https://historicengland.org.uk" target="_blank" rel="noopener">Historic England</a>, OGL',
+  'Fishing activity (VMS 2019–2022) © <a href="https://www.gov.uk/government/organisations/marine-management-organisation" target="_blank" rel="noopener">MMO</a>, DTU Aqua, JNCC, Natural England &amp; UKHO — © British Crown copyright',
+  'Wrecks © <a href="https://datahub.admiralty.co.uk" target="_blank" rel="noopener">UK Hydrographic Office</a> — not for navigation',
+  'Protected wreck sites © <a href="https://historicengland.org.uk" target="_blank" rel="noopener">Historic England</a>',
 ].join(' · ');
 
 export function createMap(container) {
