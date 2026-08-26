@@ -54,24 +54,65 @@ export const MAX_BOUNDS = [
 // map is actually drawing.
 const DORSET_LAND_ATTRIBUTION = [
   'SSSI © <a href="https://naturalengland-defra.opendata.arcgis.com" target="_blank" rel="noopener">Natural England</a>',
-  'Contains Dorset Council nature recovery data, <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">Open Government Licence</a>',
+  // The blanket OGL statement below now covers this; the credit names the body.
+  'Contains Dorset Council nature recovery data',
   'DWT reserves: list © <a href="https://www.dorsetwildlifetrust.org.uk/nature-reserves" target="_blank" rel="noopener">Dorset Wildlife Trust</a>, boundaries © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
   'ALC © Natural England (ADAS &amp; Defra)',
   'Crop Map of England © <a href="https://www.gov.uk/government/organisations/rural-payments-agency" target="_blank" rel="noopener">Rural Payments Agency</a> / <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">OGL</a>',
 ];
 
+/*
+ * THE OGL STATEMENT, MOVED OUT FROM BEHIND A DORMANT FLAG.
+ *
+ * This is the wording the Open Government Licence itself specifies where the
+ * Information Provider has not given its own, and it is reproduced VERBATIM —
+ * the licence asks for the statement to be included or linked, not paraphrased.
+ * The link wraps the licence name inside the sentence, so the required text is
+ * intact and clickable at once.
+ *
+ * It used to live in DORSET_LAND_ATTRIBUTION, behind SHOW_DORSET_LAND_LAYERS,
+ * which is false — so the one statement OGL actually asks for rendered nowhere
+ * while eleven layers relied on the licence. It is unconditional now.
+ */
+const OGL_STATEMENT =
+  'Contains public sector information licensed under the ' +
+  '<a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">Open Government Licence v3.0</a>.';
+
 const ATTRIBUTION = [
   '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>',
   '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
   ...(SHOW_DORSET_LAND_LAYERS ? DORSET_LAND_ATTRIBUTION : []),
+  OGL_STATEMENT,
   'Marine data © <a href="https://naturalengland-defra.opendata.arcgis.com" target="_blank" rel="noopener">Natural England</a> / JNCC, OGL',
   'Coastal erosion © <a href="https://www.gov.uk/government/organisations/environment-agency" target="_blank" rel="noopener">Environment Agency</a>, OGL',
   'Storm overflow annual returns (EDM) &amp; WFD water body status © <a href="https://environment.data.gov.uk" target="_blank" rel="noopener">Environment Agency</a>, OGL',
+  // Two active layers that carried no credit of their own at all until now. The
+  // bar named the Environment Agency three times and neither of these was one
+  // of them, so a strict reading had 193 bathing waters and four flood extents
+  // — about 4.5 MB of committed data — uncredited.
+  'Bathing waters © <a href="https://environment.data.gov.uk" target="_blank" rel="noopener">Environment Agency</a>, OGL',
+  'Sea flood risk (NaFRA2, December 2024) © <a href="https://environment.data.gov.uk" target="_blank" rel="noopener">Environment Agency</a>, OGL',
   'Live discharge status © the water companies via <a href="https://www.streamwaterdata.co.uk" target="_blank" rel="noopener">Stream</a> / <a href="https://www.water.org.uk" target="_blank" rel="noopener">Water UK</a>',
   'Seabed habitats: UKSeaMap © <a href="https://jncc.gov.uk" target="_blank" rel="noopener">JNCC</a> via <a href="https://emodnet.ec.europa.eu/en/seabed-habitats" target="_blank" rel="noopener">EMODnet Seabed Habitats</a>',
   // NBN is credited unconditionally: the MARINE species layer uses it and is not
   // governed by SHOW_DORSET_LAND_LAYERS, unlike the land species grid.
+  //
+  // NBN's terms ask for the Data PARTNER to be named, not just the aggregator.
+  // That is not done here and is not attempted: the builds record no
+  // dataResource, so the partners behind these records are not known. See
+  // docs/licence-audit.md.
   'Species records: <a href="https://nbnatlas.org" target="_blank" rel="noopener">NBN Atlas</a> contributors',
+  /*
+   * ONS, credited because its boundary DETERMINES OUTPUT GEOMETRY: the December
+   * 2025 Countries boundary is what every marine species marker is pushed off
+   * the land by, so it is a build input that shapes the data, not a passing
+   * reference. Both sentences are ONS's own required wording, reproduced
+   * verbatim from their digital boundaries page — including "v.3.0" with the
+   * stop, which is how they write it.
+   *
+   * The year is 2025, from the boundary's own name (Countries December 2025).
+   */
+  'Source: <a href="https://geoportal.statistics.gov.uk" target="_blank" rel="noopener">Office for National Statistics</a> licensed under the Open Government Licence v.3.0 · Contains OS data © Crown copyright and database right 2025',
   'Vessel density (2015 AIS) © <a href="https://www.gov.uk/government/organisations/marine-management-organisation" target="_blank" rel="noopener">MMO</a> &amp; MCA, OGL — © British Crown copyright',
   'Marine licensing &amp; disposal grounds © <a href="https://www.gov.uk/government/organisations/marine-management-organisation" target="_blank" rel="noopener">MMO</a> / <a href="https://www.cefas.co.uk" target="_blank" rel="noopener">Cefas</a>, OGL',
   // The source's own required credit line for the VMS heatmap, which carries
