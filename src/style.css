@@ -106,15 +106,38 @@ body.is-ready .maplibregl-map {
  * widest child, and transparent to the pointer so the gap between the two never
  * swallows a click meant for the map. The children take their events back.
  *
- * KNOWN, ACCEPTED, COSMETIC: the bottom of this column overlaps the attribution
- * strip. The panel alone already did — at 1440x900 it ends at y=828 against an
- * attribution starting around y=808 — and the live status control extends that
- * by roughly two more lines within the column's 312px. Clearing the strip
- * entirely would cost the panel about 75px of height on every viewport, for
- * every visitor, to tidy an overlap in one corner of a control that is only
- * present while one layer is on. Not worth it. The attribution remains fully
- * legible to the right of the column, and nothing here covers the © links'
- * hit targets — a click in the seam reaches them, which is verified.
+ * KNOWN — AND NOT COSMETIC, WHICH IS A CORRECTION.
+ *
+ * The bottom of this column overlaps the attribution strip, hiding the leftmost
+ * 312px of however many of its lines the column reaches. This was recorded here
+ * as cosmetic on the reasoning that the attribution "remains fully legible to
+ * the right of the column". Measured properly, per credit, that is false:
+ *
+ *      1440x900, panel only        1 of 5 attribution lines clipped
+ *      1440x900 + live control     3 of 5   — "EMODnet Seabed Habitats" and
+ *                                             "Historic England" 100% hidden
+ *      1024x768, panel only        3 of 6   — "Sea flood risk", "EMODnet
+ *                                             Seabed Habitats", "NBN Atlas"
+ *                                             100% hidden
+ *      1024x768 + live control     5 of 6   — the above plus "Natural England",
+ *                                             and ONS's required "Contains OS
+ *                                             data © Crown copyright and
+ *                                             database right 2025" 56% hidden
+ *
+ * In every configuration the style's own "OpenFreeMap © OpenMapTiles Data from
+ * OpenStreetMap" — the first thing in the strip, and OpenFreeMap's required
+ * wording — is 100% hidden.
+ *
+ * The two statements this map is obliged to carry in full, OGL's and ONS's
+ * "Source:" line, are clear of the column everywhere except that one 56% case.
+ * Everything else named above is a credit a licence asks for and a visitor
+ * cannot read at that size.
+ *
+ * NOT FIXED HERE. The fix is to stop the strip running under the column at all
+ * — a left margin on .maplibregl-ctrl-attrib of the column's width — which
+ * makes the strip narrower and therefore taller, and that is a layout decision
+ * rather than a comment correction. Left as a stated defect rather than a
+ * comment that says the problem does not exist.
  */
 .panel-column {
   position: absolute;
